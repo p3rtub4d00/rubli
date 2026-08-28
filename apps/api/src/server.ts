@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 import { MongoClient } from 'mongodb';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDemandRoutes } from './routes/demands.js';
+import { registerProposalRoutes } from './routes/proposals.js';
 
 const app = Fastify({ logger: true });
 
@@ -12,6 +13,7 @@ await app.register(helmet);
 await app.register(cors, { origin: true });
 await registerAuthRoutes(app);
 await registerDemandRoutes(app);
+await registerProposalRoutes(app);
 
 const mongoUri = process.env.MONGODB_URI;
 let mongoClient: MongoClient | undefined;
