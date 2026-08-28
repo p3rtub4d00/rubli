@@ -3,12 +3,14 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { MongoClient } from 'mongodb';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerDemandRoutes } from './routes/demands.js';
 
 const app = Fastify({ logger: true });
 
 await app.register(helmet);
 await app.register(cors, { origin: true });
+await registerAuthRoutes(app);
 await registerDemandRoutes(app);
 
 const mongoUri = process.env.MONGODB_URI;
