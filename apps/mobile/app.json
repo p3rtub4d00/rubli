@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Rubli",
+    "slug": "rubli",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#081B33"
+    },
+    "android": {
+      "package": "br.com.rubli.app"
+    },
+    "ios": {
+      "bundleIdentifier": "br.com.rubli.app"
+    }
+  }
+}
