@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Demand, User } from '@rubli/shared';
+import type { Demand, Proposal, User } from '@rubli/shared';
 
 const KEYS = {
   user: '@rubli/user',
   demands: '@rubli/demands',
+  proposals: '@rubli/proposals',
 } as const;
 
 export async function saveUser(user: User) {
@@ -24,6 +25,15 @@ export async function getDemands(): Promise<Demand[]> {
   return value ? (JSON.parse(value) as Demand[]) : [];
 }
 
+export async function saveProposals(proposals: Proposal[]) {
+  await AsyncStorage.setItem(KEYS.proposals, JSON.stringify(proposals));
+}
+
+export async function getProposals(): Promise<Proposal[]> {
+  const value = await AsyncStorage.getItem(KEYS.proposals);
+  return value ? (JSON.parse(value) as Proposal[]) : [];
+}
+
 export async function clearLocalData() {
-  await AsyncStorage.multiRemove([KEYS.user, KEYS.demands]);
+  await AsyncStorage.multiRemove([KEYS.user, KEYS.demands, KEYS.proposals]);
 }
