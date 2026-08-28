@@ -10,9 +10,10 @@
 - [x] API sem dependência obrigatória de MongoDB
 
 ## Fase 2 — Marketplace de demandas
-- [ ] Feed de demandas próximas
-- [ ] Propostas com valor e contraproposta
-- [ ] Aceite/rejeição de propostas
+- [x] Feed básico de demandas disponíveis
+- [x] Propostas com valor
+- [x] Aceite/rejeição de propostas
+- [ ] Contraproposta formal entre as partes
 - [ ] Chat cliente ↔ executor
 - [ ] Histórico de demandas
 - [ ] Status em tempo real
