@@ -56,6 +56,33 @@ export interface CreateProposalInput {
   message?: string;
 }
 
+export type ChatParticipantRole = 'customer' | 'provider';
+
+export interface Conversation {
+  id: string;
+  demandId: string;
+  customerId: string;
+  providerId: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  text: string;
+  createdAt: string;
+  readAt?: string;
+}
+
+export interface CreateMessageInput {
+  conversationId: string;
+  senderId: string;
+  text: string;
+}
+
 export const DEMAND_CATEGORIES = {
   service: ['Elétrica', 'Hidráulica', 'Chaveiro', 'Limpeza', 'Montagem', 'Pintura', 'Construção', 'Outros'],
   purchase: ['Mercado', 'Padaria', 'Farmácia', 'Restaurante', 'Outros'],
