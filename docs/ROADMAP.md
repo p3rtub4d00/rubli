@@ -15,14 +15,15 @@
 - [x] Aceite/rejeição de propostas
 - [x] Base de conversas e mensagens no modo local-first
 - [x] API de conversas e mensagens
-- [x] Tela de chat separada para integração ao fluxo principal
-- [ ] Integrar chat à navegação principal do app
+- [x] Tela de chat integrada ao fluxo de propostas
 - [ ] Contraproposta formal com histórico de versões
 - [ ] Histórico de demandas
 - [ ] Status em tempo real
 
 ## Fase 3 — Operação local
-- [ ] Geolocalização e raio de atendimento
+- [x] Captura de localização atual no aplicativo
+- [x] Armazenamento local de latitude/longitude da demanda
+- [ ] Feed real por proximidade e raio de atendimento
 - [ ] Notificações push
 - [ ] Modo "Preciso agora"
 - [ ] Fluxo de compras e adiantamento do valor do item
