@@ -10,10 +10,15 @@
       "backgroundColor": "#081B33"
     },
     "android": {
-      "package": "br.com.rubli.app"
+      "package": "br.com.rubli.app",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
     },
     "ios": {
-      "bundleIdentifier": "br.com.rubli.app"
-    }
+      "bundleIdentifier": "br.com.rubli.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "O Rubli usa sua localização para encontrar demandas e oportunidades próximas."
+      }
+    },
+    "plugins": ["expo-location"]
   }
 }
