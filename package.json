@@ -1,0 +1,14 @@
+{
+  "name": "rubli",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Rubli — marketplace de demandas locais para serviços, compras, entregas e fretes.",
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "dev": "pnpm --filter @rubli/api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
