@@ -49,6 +49,13 @@ export interface Proposal {
   createdAt: string;
 }
 
+export interface CreateProposalInput {
+  demandId: string;
+  providerId: string;
+  amount: number;
+  message?: string;
+}
+
 export const DEMAND_CATEGORIES = {
   service: ['Elétrica', 'Hidráulica', 'Chaveiro', 'Limpeza', 'Montagem', 'Pintura', 'Construção', 'Outros'],
   purchase: ['Mercado', 'Padaria', 'Farmácia', 'Restaurante', 'Outros'],
