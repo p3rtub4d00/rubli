@@ -1,0 +1,52 @@
+# Rubli — roadmap de desenvolvimento
+
+## Fase 1 — MVP local-first
+- [x] Estrutura monorepo
+- [x] Tipos compartilhados
+- [x] Perfil inicial de cliente/prestador
+- [x] Criação de demanda local
+- [x] Categorias de serviço, compra, entrega e frete
+- [x] API inicial de usuários e demandas
+- [x] API sem dependência obrigatória de MongoDB
+
+## Fase 2 — Marketplace de demandas
+- [ ] Feed de demandas próximas
+- [ ] Propostas com valor e contraproposta
+- [ ] Aceite/rejeição de propostas
+- [ ] Chat cliente ↔ executor
+- [ ] Histórico de demandas
+- [ ] Status em tempo real
+
+## Fase 3 — Operação local
+- [ ] Geolocalização e raio de atendimento
+- [ ] Notificações push
+- [ ] Modo "Preciso agora"
+- [ ] Fluxo de compras e adiantamento do valor do item
+- [ ] Fluxo de entrega
+- [ ] Fluxo de frete
+
+## Fase 4 — Confiança e pagamentos
+- [ ] Verificação de telefone
+- [ ] Verificação de identidade de prestadores
+- [ ] Avaliações
+- [ ] Pix e intermediador de pagamentos
+- [ ] Regras de cancelamento e disputas
+- [ ] Carteira e repasses
+
+## Fase 5 — Administração e monetização
+- [ ] Painel administrativo
+- [ ] Comissão por demanda concluída
+- [ ] Planos para profissionais
+- [ ] Destaques e publicidade local
+- [ ] Cupons e programa de indicação
+- [ ] Métricas e auditoria
+
+## Fase 6 — Produção
+- [ ] Conta oficial da marca
+- [ ] MongoDB oficial
+- [ ] Ambiente de staging
+- [ ] Ambiente de produção
+- [ ] Crash reporting e observabilidade
+- [ ] Políticas, termos e privacidade
+- [ ] Publicação Google Play
+- [ ] Publicação App Store
