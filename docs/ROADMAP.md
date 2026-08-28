@@ -13,8 +13,11 @@
 - [x] Feed básico de demandas disponíveis
 - [x] Propostas com valor
 - [x] Aceite/rejeição de propostas
-- [ ] Contraproposta formal entre as partes
-- [ ] Chat cliente ↔ executor
+- [x] Base de conversas e mensagens no modo local-first
+- [x] API de conversas e mensagens
+- [x] Tela de chat separada para integração ao fluxo principal
+- [ ] Integrar chat à navegação principal do app
+- [ ] Contraproposta formal com histórico de versões
 - [ ] Histórico de demandas
 - [ ] Status em tempo real
 
