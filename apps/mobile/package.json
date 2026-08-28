@@ -14,6 +14,7 @@
     "@react-native-async-storage/async-storage": "latest",
     "@rubli/shared": "workspace:*",
     "expo": "latest",
+    "expo-location": "latest",
     "expo-status-bar": "latest",
     "react": "latest",
     "react-native": "latest",
