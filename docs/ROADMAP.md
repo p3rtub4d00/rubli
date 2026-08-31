@@ -20,8 +20,8 @@
 - [x] Tela de chat integrada ao fluxo de propostas
 - [ ] Contraproposta formal com histórico de versões
 - [x] Fluxo de serviço: aceite, início e conclusão
-- [x] Avaliação do serviço com estrelas e comentário
-- [ ] Histórico de demandas
+- [x] Avaliação mútua de cliente e prestador
+- [x] Histórico local de demandas concluídas
 - [ ] Status em tempo real
 
 ## Fase 3 — Operação local
@@ -42,7 +42,9 @@
 ## Fase 4 — Confiança e pagamentos
 - [ ] Verificação de telefone
 - [ ] Verificação de identidade de prestadores
-- [x] Estrutura local de avaliações
+- [x] Estrutura local de avaliações e reputação
+- [x] Perfil público com informações do usuário
+- [x] Fotos de perfil e portfólio local
 - [ ] Pix e intermediador de pagamentos
 - [ ] Regras de cancelamento e disputas
 - [ ] Carteira e repasses
