@@ -4,6 +4,7 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const appPath = path.join(root, 'apps', 'mobile', 'App.tsx');
 const chatPath = path.join(root, 'apps', 'mobile', 'src', 'screens', 'ChatScreen.tsx');
+const negotiationPath = path.join(root, 'apps', 'mobile', 'src', 'screens', 'NegotiationChatScreen.tsx');
 
 function updateFile(filePath, replacements, label) {
   let source = fs.readFileSync(filePath, 'utf8');
@@ -12,9 +13,7 @@ function updateFile(filePath, replacements, label) {
     return;
   }
   for (const [needle, replacement, name] of replacements) {
-    if (!source.includes(needle)) {
-      throw new Error(`Não encontrei o trecho: ${name}`);
-    }
+    if (!source.includes(needle)) throw new Error(`Não encontrei o trecho: ${name}`);
     source = source.replace(needle, replacement);
   }
   source = `// RUBLI_BID_DIRECTION_V1\n${source}`;
@@ -61,5 +60,18 @@ updateFile(chatPath, [
     'botão de confirmação simétrico'
   ]
 ], 'ChatScreen.tsx');
+
+updateFile(negotiationPath, [
+  [
+    "  async function acceptProposal(proposal: Proposal) {\n    if (user.id !== conversation.customerId || proposal.status !== 'pending') throw new Error('Somente o cliente pode aceitar esta proposta.');\n    const now = new Date().toISOString();\n    const nextProposals = proposals.map((item) =>\n      item.demandId === conversation.demandId\n        ? item.id === proposal.id\n          ? { ...item, status: 'accepted' as const, customerConfirmedAt: now }\n          : item.status === 'pending'\n            ? { ...item, status: 'rejected' as const }\n            : item\n        : item,\n    );",
+    "  async function acceptProposal(proposal: Proposal) {\n    if (proposal.status !== 'pending') throw new Error('Somente ofertas pendentes podem ser aceitas.');\n    const offerSide = proposal.offeredBy ?? 'provider';\n    const recipientId = offerSide === 'provider' ? conversation.customerId : conversation.providerId;\n    if (user.id !== recipientId) throw new Error('Somente quem recebeu a oferta pode aceitá-la.');\n    const now = new Date().toISOString();\n    const nextProposals = proposals.map((item) =>\n      item.demandId === conversation.demandId\n        ? item.id === proposal.id\n          ? { ...item, status: 'accepted' as const, ...(offerSide === 'provider' ? { customerConfirmedAt: now } : { providerConfirmedAt: now }) }\n          : item.status === 'pending'\n            ? { ...item, status: 'rejected' as const }\n            : item\n        : item,\n    );",
+    'aceite simétrico da negociação'
+  ],
+  [
+    "  async function confirmAgreement(proposal: Proposal) {\n    if (user.id !== conversation.providerId) throw new Error('Somente o prestador pode confirmar o acordo.');\n    if (proposal.status !== 'accepted' || !proposal.customerConfirmedAt) throw new Error('O cliente ainda não confirmou a proposta.');\n    const now = new Date().toISOString();\n    const nextProposals = proposals.map((item) => item.id === proposal.id ? { ...item, providerConfirmedAt: now } : item);",
+    "  async function confirmAgreement(proposal: Proposal) {\n    if (proposal.status !== 'accepted') throw new Error('Somente uma oferta aceita pode ser confirmada.');\n    const waitingForCustomer = !proposal.customerConfirmedAt && user.id === conversation.customerId;\n    const waitingForProvider = !proposal.providerConfirmedAt && user.id === conversation.providerId;\n    if (!waitingForCustomer && !waitingForProvider) throw new Error('Você não pode confirmar esta etapa da negociação.');\n    const now = new Date().toISOString();\n    const nextProposals = proposals.map((item) => item.id === proposal.id ? { ...item, ...(waitingForCustomer ? { customerConfirmedAt: now } : { providerConfirmedAt: now }) } : item);",
+    'confirmação simétrica do acordo'
+  ]
+], 'NegotiationChatScreen.tsx');
 
 console.log('Fluxo de negociação por autoria da oferta aplicado com sucesso.');
