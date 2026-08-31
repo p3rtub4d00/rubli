@@ -86,6 +86,16 @@ export interface CreateMessageInput {
   text: string;
 }
 
+export interface ServiceRating {
+  id: string;
+  demandId: string;
+  providerId: string;
+  customerId: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+}
+
 export const DEMAND_CATEGORIES = {
   service: ['Elétrica', 'Hidráulica', 'Chaveiro', 'Limpeza', 'Montagem', 'Pintura', 'Construção', 'Outros'],
   purchase: ['Mercado', 'Padaria', 'Farmácia', 'Restaurante', 'Outros'],
