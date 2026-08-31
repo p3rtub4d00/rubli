@@ -92,4 +92,4 @@ export const DEMAND_CATEGORIES = {
   freight: ['Mudança', 'Móveis', 'Materiais', 'Carga leve', 'Carga pesada', 'Outros'],
 } as const;
 
-export { distanceKm, isValidCoordinates } from './geo.js';
+export { distanceKm, isValidCoordinates } from './geo';
