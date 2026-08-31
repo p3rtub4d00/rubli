@@ -60,8 +60,8 @@ replaceOnce(
 );
 
 replaceOnce(
-  /const styles = StyleSheet\.create\(\{container:\{flex:1,backgroundColor:'#F7F9FC'\},/,
-  "const styles = StyleSheet.create({availabilityCard:{backgroundColor:'#FFF',borderWidth:1,borderColor:'#E2E8F0',borderRadius:16,padding:15,marginBottom:14,flexDirection:'row',alignItems:'center',gap:12},availabilityText:{flex:1},availabilityTitle:{color:BRAND,fontWeight:'900',fontSize:16},availabilityHint:{color:'#68778C',fontSize:12,lineHeight:17,marginTop:4},availabilityOn:{backgroundColor:'#2F7D4A',borderRadius:11,paddingHorizontal:12,paddingVertical:10},availabilityOff:{backgroundColor:ACCENT,borderRadius:11,paddingHorizontal:12,paddingVertical:10},availabilityButtonText:{color:'#FFF',fontWeight:'900',fontSize:12},container:{flex:1,backgroundColor:'#F7F9FC'},",
+  /const styles = StyleSheet\.create\(\{ safe:/,
+  "const styles = StyleSheet.create({ availabilityCard:{backgroundColor:'#FFF',borderWidth:1,borderColor:'#E2E8F0',borderRadius:16,padding:15,marginBottom:14,flexDirection:'row',alignItems:'center',gap:12},availabilityText:{flex:1},availabilityTitle:{color:BRAND,fontWeight:'900',fontSize:16},availabilityHint:{color:'#68778C',fontSize:12,lineHeight:17,marginTop:4},availabilityOn:{backgroundColor:'#2F7D4A',borderRadius:11,paddingHorizontal:12,paddingVertical:10},availabilityOff:{backgroundColor:ACCENT,borderRadius:11,paddingHorizontal:12,paddingVertical:10},availabilityButtonText:{color:'#FFF',fontWeight:'900',fontSize:12}, safe:",
   'estilos do modo disponibilidade'
 );
 
