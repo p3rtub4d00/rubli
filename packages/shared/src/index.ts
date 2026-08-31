@@ -19,6 +19,7 @@ export interface User {
   phone?: string;
   email?: string;
   role: UserRole;
+  serviceRadiusKm?: number;
   createdAt: string;
 }
 
@@ -34,6 +35,7 @@ export interface Demand {
   locationLabel: string;
   latitude?: number;
   longitude?: number;
+  isUrgent?: boolean;
   status: DemandStatus;
   createdAt: string;
   updatedAt: string;
