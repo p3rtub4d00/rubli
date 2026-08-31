@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { ChatMessage, Conversation, Proposal, Demand } from '@rubli/shared';
-import { getDemands, getMessages, getProposals, saveMessages, saveProposals } from '../storage/localStore';
+import { getDemands, getMessages, getProposals, saveMessages } from '../storage/localStore';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
@@ -45,10 +45,14 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
 
   const currentConversationMessages = useMemo(() => messages.filter((item) => item.conversationId === conversation.id), [messages, conversation.id]);
   const isCustomer = currentUserId === conversation.customerId;
+  const offerSide = proposal?.offeredBy ?? 'provider';
+  const isOfferAuthor = Boolean(proposal && ((offerSide === 'customer' && isCustomer) || (offerSide === 'provider' && !isCustomer)));
+  const canRespondToOffer = Boolean(proposal && proposal.status === 'pending' && !isOfferAuthor);
   const customerConfirmed = Boolean(proposal?.customerConfirmedAt);
   const providerConfirmed = Boolean(proposal?.providerConfirmedAt);
   const bothConfirmed = customerConfirmed && providerConfirmed;
-  const canCounter = Boolean(proposal && proposal.status === 'pending' && onCounterProposal);
+  const canCounter = Boolean(canRespondToOffer && onCounterProposal);
+  const pendingStatus = isOfferAuthor ? 'AGUARDANDO RESPOSTA' : 'SUA RESPOSTA';
 
   async function sendMessage() {
     const normalized = text.trim(); if (!normalized) return;
@@ -57,17 +61,19 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   }
 
   async function accept() {
-    if (!proposal || working || proposal.status !== 'pending' || !isCustomer || !onAcceptProposal) return;
-    setWorking(true); try { await onAcceptProposal(proposal); await reload(); } catch { Alert.alert('Erro', 'Não foi possível confirmar a proposta.'); } finally { setWorking(false); }
+    if (!proposal || working || !canRespondToOffer || !onAcceptProposal) return;
+    setWorking(true); try { await onAcceptProposal(proposal); await reload(); } catch { Alert.alert('Erro', 'Não foi possível aceitar a oferta.'); } finally { setWorking(false); }
   }
 
   async function confirmAgreement() {
-    if (!proposal || working || isCustomer || proposal.status !== 'accepted' || !proposal.customerConfirmedAt || providerConfirmed || !onConfirmAgreement) return;
+    if (!proposal || working || proposal.status !== 'accepted' || bothConfirmed || !onConfirmAgreement) return;
+    const canConfirmMissingSide = (isCustomer && !customerConfirmed) || (!isCustomer && !providerConfirmed);
+    if (!canConfirmMissingSide) return;
     setWorking(true); try { await onConfirmAgreement(proposal); await reload(); } catch { Alert.alert('Erro', 'Não foi possível confirmar o acordo.'); } finally { setWorking(false); }
   }
 
   async function sendCounter() {
-    if (!proposal || !onCounterProposal) return;
+    if (!proposal || !onCounterProposal || !canRespondToOffer) return;
     const amount = Number(counterAmount.replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) return Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
     if (Math.abs(amount - proposal.amount) < 0.01) return Alert.alert('Valor igual', 'Informe um valor diferente do valor atual.');
@@ -91,14 +97,15 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
     <View style={styles.header}><TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></TouchableOpacity><View style={styles.headerText}><Text style={styles.title}>{otherUserName}</Text><Text style={styles.subtitle}>{bothConfirmed ? (demand?.status === 'completed' ? 'Serviço concluído' : 'Serviço contratado') : 'Negociação pelo Rubli'}</Text></View></View>
     <ScrollView contentContainerStyle={styles.messages} keyboardShouldPersistTaps="handled">
       {proposal && <View style={styles.proposalCard}>
-        <View style={styles.proposalTop}><Text style={styles.proposalLabel}>VALOR ATUAL</Text><Text style={styles.proposalStatus}>{bothConfirmed ? 'ACORDO CONFIRMADO' : proposal.status === 'accepted' ? 'ACEITA PELO CLIENTE' : proposal.status === 'superseded' ? 'SUBSTITUÍDA' : 'AGUARDANDO RESPOSTA'}</Text></View>
+        <View style={styles.proposalTop}><Text style={styles.proposalLabel}>VALOR ATUAL</Text><Text style={styles.proposalStatus}>{bothConfirmed ? 'ACORDO CONFIRMADO' : proposal.status === 'accepted' ? 'OFERTA ACEITA' : proposal.status === 'superseded' ? 'SUBSTITUÍDA' : pendingStatus}</Text></View>
         <Text style={styles.proposalAmount}>{money(proposal.amount)}</Text>{proposal.message && <Text style={styles.proposalMessage}>“{proposal.message}”</Text>}
         <View style={styles.confirmationBox}><Text style={styles.confirmationText}>{customerConfirmed ? '✓ Cliente confirmou' : '○ Cliente ainda não confirmou'}</Text><Text style={styles.confirmationText}>{providerConfirmed ? '✓ Prestador confirmou' : '○ Prestador ainda não confirmou'}</Text></View>
-        {proposal.status === 'pending' && <View style={styles.actionGrid}>
+        {proposal.status === 'pending' && canRespondToOffer && <View style={styles.actionGrid}>
           {canCounter && <TouchableOpacity style={styles.secondaryAction} onPress={() => { setCounterAmount(String(proposal.amount).replace('.', ',')); setCounterMessage(''); setCounterOpen(true); }}><Text style={styles.secondaryActionText}>↔ Contraproposta</Text></TouchableOpacity>}
-          {isCustomer && onAcceptProposal && <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={working}><Text style={styles.acceptButtonText}>{working ? 'Confirmando...' : `✓ Aceitar por ${money(proposal.amount)}`}</Text></TouchableOpacity>}
+          {onAcceptProposal && <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={working}><Text style={styles.acceptButtonText}>{working ? 'Aceitando...' : `✓ Aceitar por ${money(proposal.amount)}`}</Text></TouchableOpacity>}
         </View>}
-        {proposal.status === 'accepted' && !isCustomer && !providerConfirmed && onConfirmAgreement && <TouchableOpacity style={styles.providerConfirmButton} onPress={() => confirmAgreement().catch(() => undefined)} disabled={working}><Text style={styles.providerConfirmText}>{working ? 'Confirmando...' : '✓ Confirmar acordo e serviço'}</Text></TouchableOpacity>}
+        {proposal.status === 'pending' && isOfferAuthor && <Text style={styles.acceptedText}>⏳ Você enviou esta oferta. Aguardando resposta do outro lado.</Text>}
+        {proposal.status === 'accepted' && !bothConfirmed && onConfirmAgreement && ((isCustomer && !customerConfirmed) || (!isCustomer && !providerConfirmed)) && <TouchableOpacity style={styles.providerConfirmButton} onPress={() => confirmAgreement().catch(() => undefined)} disabled={working}><Text style={styles.providerConfirmText}>{working ? 'Confirmando...' : '✓ Confirmar acordo e serviço'}</Text></TouchableOpacity>}
         {bothConfirmed && <Text style={styles.acceptedText}>✓ Os dois lados confirmaram. Serviço contratado.</Text>}
       </View>}
 
