@@ -3,6 +3,7 @@ import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User }
 
 const KEYS = {
   user: '@rubli/user',
+  users: '@rubli/users',
   demands: '@rubli/demands',
   proposals: '@rubli/proposals',
   conversations: '@rubli/conversations',
@@ -49,9 +50,14 @@ export async function saveUser(user: User | null) {
     return;
   }
   await writeJson(KEYS.user, user);
+  const users = await readJson<User[]>(KEYS.users, []);
+  const nextUsers = [user, ...users.filter((item) => item.id !== user.id)];
+  await writeJson(KEYS.users, nextUsers);
 }
 
 export async function getUser(): Promise<User | null> { return readJson<User | null>(KEYS.user, null); }
+export async function getUsers(): Promise<User[]> { return readJson<User[]>(KEYS.users, []); }
+export async function saveUsers(users: User[]) { await writeJson(KEYS.users, users); }
 
 export async function saveDemands(demands: Demand[]) {
   await archiveDemandRecords(demands);
@@ -84,6 +90,7 @@ export async function getRatings(): Promise<ServiceRating[]> { return readJson<S
 export async function clearLocalData() {
   await AsyncStorage.multiRemove([
     KEYS.user,
+    KEYS.users,
     KEYS.demands,
     KEYS.proposals,
     KEYS.conversations,
