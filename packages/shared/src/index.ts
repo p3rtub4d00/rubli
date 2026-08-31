@@ -21,6 +21,10 @@ export interface User {
   role: UserRole;
   serviceRadiusKm?: number;
   serviceCategories?: string[];
+  bio?: string;
+  city?: string;
+  avatarUri?: string;
+  profilePhotos?: string[];
   createdAt: string;
 }
 
@@ -40,6 +44,9 @@ export interface Demand {
   status: DemandStatus;
   createdAt: string;
   updatedAt: string;
+  acceptedProviderId?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface Proposal {
@@ -86,6 +93,17 @@ export interface CreateMessageInput {
   text: string;
 }
 
+export interface Rating {
+  id: string;
+  demandId: string;
+  fromUserId: string;
+  toUserId: string;
+  stars: 1 | 2 | 3 | 4 | 5;
+  comment?: string;
+  createdAt: string;
+}
+
+// Mantido para compatibilidade com dados locais criados em versões anteriores.
 export interface ServiceRating {
   id: string;
   demandId: string;
