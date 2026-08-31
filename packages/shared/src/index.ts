@@ -7,7 +7,10 @@ export type DemandStatus =
   | 'open'
   | 'negotiating'
   | 'accepted'
+  | 'provider_en_route'
+  | 'provider_arrived'
   | 'in_progress'
+  | 'awaiting_customer_confirmation'
   | 'completed'
   | 'cancelled';
 
@@ -49,7 +52,11 @@ export interface Demand {
   createdAt: string;
   updatedAt: string;
   acceptedProviderId?: string;
+  enRouteAt?: string;
+  arrivedAt?: string;
   startedAt?: string;
+  completionRequestedAt?: string;
+  customerConfirmedCompletionAt?: string;
   completedAt?: string;
 }
 
