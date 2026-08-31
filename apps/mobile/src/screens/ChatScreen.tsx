@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import type { ChatMessage, Conversation } from '@rubli/shared';
-import { getMessages, saveMessages } from '../storage/localStore';
+import type { ChatMessage, Conversation, Proposal, User } from '@rubli/shared';
+import { getMessages, getProposals, getDemands, saveMessages, saveProposals, saveDemands } from '../storage/localStore';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
@@ -11,21 +11,30 @@ interface ChatScreenProps {
   currentUserId: string;
   otherUserName?: string;
   onBack: () => void;
+  onAcceptProposal?: (proposal: Proposal) => Promise<void>;
 }
 
 function newMessageId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', onBack }: ChatScreenProps) {
+function money(value: number) {
+  return `R$ ${value.toFixed(2).replace('.', ',')}`;
+}
+
+export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', onBack, onAcceptProposal }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [accepting, setAccepting] = useState(false);
 
   useEffect(() => {
-    getMessages().then((items) => {
+    Promise.all([getMessages(), getProposals()]).then(([items, proposals]) => {
       setMessages(items.filter((item) => item.conversationId === conversation.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+      const linked = proposals.find((item) => item.demandId === conversation.demandId && (item.providerId === conversation.providerId || item.providerId === currentUserId));
+      setProposal(linked ?? null);
     });
-  }, [conversation.id]);
+  }, [conversation.id, conversation.demandId, conversation.providerId, currentUserId]);
 
   const currentConversationMessages = useMemo(
     () => messages.filter((item) => item.conversationId === conversation.id),
@@ -50,6 +59,19 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
     setText('');
   }
 
+  async function accept() {
+    if (!proposal || accepting || proposal.status !== 'pending' || !onAcceptProposal) return;
+    setAccepting(true);
+    try {
+      await onAcceptProposal(proposal);
+      setProposal({ ...proposal, status: 'accepted' });
+    } catch {
+      Alert.alert('Erro', 'Não foi possível aceitar a proposta.');
+    } finally {
+      setAccepting(false);
+    }
+  }
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
@@ -63,9 +85,30 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
       </View>
 
       <ScrollView contentContainerStyle={styles.messages} keyboardShouldPersistTaps="handled">
+        <View style={styles.proposalCard}>
+          <View style={styles.proposalTop}>
+            <Text style={styles.proposalLabel}>PROPOSTA</Text>
+            {proposal && <Text style={styles.proposalStatus}>{proposal.status === 'accepted' ? 'ACEITA' : 'PENDENTE'}</Text>}
+          </View>
+          {proposal ? (
+            <>
+              <Text style={styles.proposalAmount}>{money(proposal.amount)}</Text>
+              {proposal.message && <Text style={styles.proposalMessage}>“{proposal.message}”</Text>}
+              {currentUserId === conversation.customerId && proposal.status === 'pending' && onAcceptProposal && (
+                <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={accepting}>
+                  <Text style={styles.acceptButtonText}>{accepting ? 'Aceitando...' : `✓ Aceitar serviço por ${money(proposal.amount)}`}</Text>
+                </TouchableOpacity>
+              )}
+              {proposal.status === 'accepted' && <Text style={styles.acceptedText}>✓ Serviço aceito. Combine os últimos detalhes pelo chat.</Text>}
+            </>
+          ) : (
+            <Text style={styles.noticeText}>Proposta vinculada à demanda. Combine valores e detalhes antes de fechar.</Text>
+          )}
+        </View>
+
         <View style={styles.notice}>
           <Text style={styles.noticeTitle}>Conversa vinculada à demanda</Text>
-          <Text style={styles.noticeText}>Combine valores e detalhes antes de aceitar a proposta. O pagamento será integrado em uma etapa posterior.</Text>
+          <Text style={styles.noticeText}>Negocie valores, horário e detalhes antes de aceitar.</Text>
         </View>
 
         {currentConversationMessages.length === 0 ? (
@@ -108,6 +151,15 @@ const styles = StyleSheet.create({
   title: { color: BRAND, fontSize: 18, fontWeight: '800' },
   subtitle: { color: '#738096', marginTop: 2 },
   messages: { padding: 16, paddingBottom: 24 },
+  proposalCard: { backgroundColor: '#FFF7EF', borderWidth: 1, borderColor: '#F1C28F', borderRadius: 16, padding: 15, marginBottom: 12 },
+  proposalTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  proposalLabel: { color: ACCENT, fontWeight: '900', fontSize: 12 },
+  proposalStatus: { color: '#64748B', fontWeight: '800', fontSize: 11 },
+  proposalAmount: { color: BRAND, fontSize: 26, fontWeight: '900', marginTop: 7 },
+  proposalMessage: { color: '#48566A', fontSize: 14, marginTop: 3, marginBottom: 4 },
+  acceptButton: { backgroundColor: ACCENT, borderRadius: 12, padding: 13, alignItems: 'center', marginTop: 12 },
+  acceptButtonText: { color: '#FFF', fontWeight: '900' },
+  acceptedText: { color: '#3F6F54', fontWeight: '800', marginTop: 9 },
   notice: { backgroundColor: '#EAF1F8', borderRadius: 14, padding: 14, marginBottom: 16 },
   noticeTitle: { color: BRAND, fontWeight: '800', marginBottom: 4 },
   noticeText: { color: '#5F6F83', lineHeight: 19 },
