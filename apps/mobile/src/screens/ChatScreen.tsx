@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import type { ChatMessage, Conversation, Proposal, User } from '@rubli/shared';
-import { getMessages, getProposals, getDemands, saveMessages, saveProposals, saveDemands } from '../storage/localStore';
+import type { ChatMessage, Conversation, Proposal } from '@rubli/shared';
+import { getMessages, getProposals, saveMessages, saveProposals } from '../storage/localStore';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
@@ -12,6 +12,7 @@ interface ChatScreenProps {
   otherUserName?: string;
   onBack: () => void;
   onAcceptProposal?: (proposal: Proposal) => Promise<void>;
+  onConfirmAgreement?: (proposal: Proposal) => Promise<void>;
 }
 
 function newMessageId() {
@@ -22,24 +23,38 @@ function money(value: number) {
   return `R$ ${value.toFixed(2).replace('.', ',')}`;
 }
 
-export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', onBack, onAcceptProposal }: ChatScreenProps) {
+export function ChatScreen({
+  conversation,
+  currentUserId,
+  otherUserName = 'Usuário',
+  onBack,
+  onAcceptProposal,
+  onConfirmAgreement,
+}: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [accepting, setAccepting] = useState(false);
+  const [working, setWorking] = useState(false);
 
   useEffect(() => {
     Promise.all([getMessages(), getProposals()]).then(([items, proposals]) => {
       setMessages(items.filter((item) => item.conversationId === conversation.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
-      const linked = proposals.find((item) => item.demandId === conversation.demandId && (item.providerId === conversation.providerId || item.providerId === currentUserId));
+      const linked = proposals
+        .filter((item) => item.demandId === conversation.demandId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       setProposal(linked ?? null);
     });
-  }, [conversation.id, conversation.demandId, conversation.providerId, currentUserId]);
+  }, [conversation.id, conversation.demandId]);
 
   const currentConversationMessages = useMemo(
     () => messages.filter((item) => item.conversationId === conversation.id),
     [messages, conversation.id],
   );
+
+  const isCustomer = currentUserId === conversation.customerId;
+  const customerConfirmed = Boolean(proposal?.customerConfirmedAt);
+  const providerConfirmed = Boolean(proposal?.providerConfirmedAt);
+  const bothConfirmed = customerConfirmed && providerConfirmed;
 
   async function sendMessage() {
     const normalized = text.trim();
@@ -60,15 +75,37 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   }
 
   async function accept() {
-    if (!proposal || accepting || proposal.status !== 'pending' || !onAcceptProposal) return;
-    setAccepting(true);
+    if (!proposal || working || proposal.status !== 'pending' || !isCustomer || !onAcceptProposal) return;
+    setWorking(true);
     try {
       await onAcceptProposal(proposal);
-      setProposal({ ...proposal, status: 'accepted' });
+      const updated: Proposal = { ...proposal, status: 'accepted', customerConfirmedAt: new Date().toISOString() };
+      setProposal(updated);
+      const current = await getProposals();
+      await saveProposals(current.map((item) => item.id === proposal.id ? updated : item));
     } catch {
-      Alert.alert('Erro', 'Não foi possível aceitar a proposta.');
+      Alert.alert('Erro', 'Não foi possível confirmar a proposta.');
     } finally {
-      setAccepting(false);
+      setWorking(false);
+    }
+  }
+
+  async function confirmAgreement() {
+    if (!proposal || working || !isCustomer === true || !onConfirmAgreement) {
+      if (isCustomer || !proposal || working || !onConfirmAgreement || proposal.status !== 'accepted') return;
+    }
+    if (isCustomer || proposal.status !== 'accepted' || providerConfirmed) return;
+    setWorking(true);
+    try {
+      await onConfirmAgreement(proposal);
+      const updated: Proposal = { ...proposal, providerConfirmedAt: new Date().toISOString() };
+      setProposal(updated);
+      const current = await getProposals();
+      await saveProposals(current.map((item) => item.id === proposal.id ? updated : item));
+    } catch {
+      Alert.alert('Erro', 'Não foi possível confirmar o acordo.');
+    } finally {
+      setWorking(false);
     }
   }
 
@@ -80,7 +117,7 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
         </TouchableOpacity>
         <View style={styles.headerText}>
           <Text style={styles.title}>{otherUserName}</Text>
-          <Text style={styles.subtitle}>Negociação pelo Rubli</Text>
+          <Text style={styles.subtitle}>{bothConfirmed ? 'Serviço contratado' : 'Negociação pelo Rubli'}</Text>
         </View>
       </View>
 
@@ -88,18 +125,30 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
         <View style={styles.proposalCard}>
           <View style={styles.proposalTop}>
             <Text style={styles.proposalLabel}>PROPOSTA</Text>
-            {proposal && <Text style={styles.proposalStatus}>{proposal.status === 'accepted' ? 'ACEITA' : 'PENDENTE'}</Text>}
+            {proposal && <Text style={styles.proposalStatus}>{bothConfirmed ? 'ACORDO CONFIRMADO' : proposal.status === 'accepted' ? 'ACEITA PELO CLIENTE' : 'PENDENTE'}</Text>}
           </View>
           {proposal ? (
             <>
               <Text style={styles.proposalAmount}>{money(proposal.amount)}</Text>
               {proposal.message && <Text style={styles.proposalMessage}>“{proposal.message}”</Text>}
-              {currentUserId === conversation.customerId && proposal.status === 'pending' && onAcceptProposal && (
-                <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={accepting}>
-                  <Text style={styles.acceptButtonText}>{accepting ? 'Aceitando...' : `✓ Aceitar serviço por ${money(proposal.amount)}`}</Text>
+              <View style={styles.confirmationBox}>
+                <Text style={styles.confirmationText}>{customerConfirmed ? '✓ Cliente confirmou' : '○ Cliente ainda não confirmou'}</Text>
+                <Text style={styles.confirmationText}>{providerConfirmed ? '✓ Prestador confirmou' : '○ Prestador ainda não confirmou'}</Text>
+              </View>
+
+              {isCustomer && proposal.status === 'pending' && onAcceptProposal && (
+                <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={working}>
+                  <Text style={styles.acceptButtonText}>{working ? 'Confirmando...' : `✓ Aceitar serviço por ${money(proposal.amount)}`}</Text>
                 </TouchableOpacity>
               )}
-              {proposal.status === 'accepted' && <Text style={styles.acceptedText}>✓ Serviço aceito. Combine os últimos detalhes pelo chat.</Text>}
+
+              {!isCustomer && proposal.status === 'accepted' && !providerConfirmed && onConfirmAgreement && (
+                <TouchableOpacity style={styles.providerConfirmButton} onPress={() => confirmAgreement().catch(() => undefined)} disabled={working}>
+                  <Text style={styles.providerConfirmText}>{working ? 'Confirmando...' : '✓ Confirmar acordo e serviço'}</Text>
+                </TouchableOpacity>
+              )}
+
+              {bothConfirmed && <Text style={styles.acceptedText}>✓ Os dois lados confirmaram. Serviço contratado.</Text>}
             </>
           ) : (
             <Text style={styles.noticeText}>Proposta vinculada à demanda. Combine valores e detalhes antes de fechar.</Text>
@@ -107,8 +156,8 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
         </View>
 
         <View style={styles.notice}>
-          <Text style={styles.noticeTitle}>Conversa vinculada à demanda</Text>
-          <Text style={styles.noticeText}>Negocie valores, horário e detalhes antes de aceitar.</Text>
+          <Text style={styles.noticeTitle}>Negociação vinculada à demanda</Text>
+          <Text style={styles.noticeText}>Combine valores, horário e detalhes aqui. A confirmação fica registrada para os dois lados.</Text>
         </View>
 
         {currentConversationMessages.length === 0 ? (
@@ -125,15 +174,7 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
       </ScrollView>
 
       <View style={styles.composer}>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          placeholder="Digite sua mensagem..."
-          placeholderTextColor="#7A8798"
-          multiline
-          maxLength={1000}
-          style={styles.input}
-        />
+        <TextInput value={text} onChangeText={setText} placeholder="Digite sua mensagem..." placeholderTextColor="#7A8798" multiline maxLength={1000} style={styles.input} />
         <TouchableOpacity onPress={() => { sendMessage().catch(() => Alert.alert('Erro', 'Não foi possível salvar a mensagem.')); }} style={styles.sendButton}>
           <Text style={styles.sendText}>Enviar</Text>
         </TouchableOpacity>
@@ -154,11 +195,15 @@ const styles = StyleSheet.create({
   proposalCard: { backgroundColor: '#FFF7EF', borderWidth: 1, borderColor: '#F1C28F', borderRadius: 16, padding: 15, marginBottom: 12 },
   proposalTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   proposalLabel: { color: ACCENT, fontWeight: '900', fontSize: 12 },
-  proposalStatus: { color: '#64748B', fontWeight: '800', fontSize: 11 },
+  proposalStatus: { color: '#64748B', fontWeight: '800', fontSize: 10, maxWidth: '55%', textAlign: 'right' },
   proposalAmount: { color: BRAND, fontSize: 26, fontWeight: '900', marginTop: 7 },
   proposalMessage: { color: '#48566A', fontSize: 14, marginTop: 3, marginBottom: 4 },
+  confirmationBox: { backgroundColor: '#FFF', borderRadius: 12, padding: 10, marginTop: 8, gap: 4 },
+  confirmationText: { color: '#526174', fontSize: 12, fontWeight: '700' },
   acceptButton: { backgroundColor: ACCENT, borderRadius: 12, padding: 13, alignItems: 'center', marginTop: 12 },
   acceptButtonText: { color: '#FFF', fontWeight: '900' },
+  providerConfirmButton: { backgroundColor: BRAND, borderRadius: 12, padding: 13, alignItems: 'center', marginTop: 12 },
+  providerConfirmText: { color: '#FFF', fontWeight: '900' },
   acceptedText: { color: '#3F6F54', fontWeight: '800', marginTop: 9 },
   notice: { backgroundColor: '#EAF1F8', borderRadius: 14, padding: 14, marginBottom: 16 },
   noticeTitle: { color: BRAND, fontWeight: '800', marginBottom: 4 },
