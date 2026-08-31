@@ -66,14 +66,8 @@ mustReplace(
 
 mustReplace(
   /(<Text style=\{styles\.muted\}>Raio atual: \{providerRadius\} km\. As urgentes aparecem primeiro\.<\/Text>)/,
-  "$1<Text style={styles.opportunityTestHint}>Teste local do fluxo: escolha uma oportunidade do feed.</Text><TouchableOpacity style={styles.opportunityTestButton} onPress={() => feed[0] && onOpportunity(feed[0])}><Text style={styles.opportunityTestButtonText}>🔔 Abrir oportunidade</Text></TouchableOpacity>",
+  "$1<TouchableOpacity style={styles.primaryButton} onPress={() => feed[0] && onOpportunity(feed[0])}><Text style={styles.primaryText}>🔔 Abrir oportunidade</Text></TouchableOpacity>",
   'botão de teste da oportunidade'
-);
-
-mustReplace(
-  /const styles = StyleSheet\.create\(\{container:/,
-  "const styles = StyleSheet.create({opportunityTestHint:{color:'#68778C',fontSize:11,marginTop:8},opportunityTestButton:{backgroundColor:BRAND,borderRadius:11,paddingVertical:11,paddingHorizontal:13,alignItems:'center',marginTop:9},opportunityTestButtonText:{color:'#FFF',fontWeight:'900',fontSize:12},container:",
-  'estilos do botão de oportunidade'
 );
 
 fs.writeFileSync(appPath, source, 'utf8');
