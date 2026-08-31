@@ -137,6 +137,6 @@ export const DEMAND_CATEGORIES = {
   freight: ['Mudança', 'Móveis', 'Materiais', 'Carga leve', 'Carga pesada', 'Outros'],
 } as const;
 
-export { distanceKm, isValidCoordinates } from './geo';
-export { canProviderSubmitProposal, isProviderSubscriptionActive } from './subscription';
-export type { ProviderSubscription, ProviderSubscriptionPlan, ProviderSubscriptionStatus } from './subscription';
+export { distanceKm, isValidCoordinates } from './geo.js';
+export { canProviderSubmitProposal, isProviderSubscriptionActive } from './subscription.js';
+export type { ProviderSubscription, ProviderSubscriptionPlan, ProviderSubscriptionStatus } from './subscription.js';
