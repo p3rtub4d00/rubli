@@ -27,9 +27,9 @@
 - [x] Cálculo de distância por coordenadas
 - [x] Endpoint API de demandas próximas com filtro de raio e urgência
 - [x] Serviço offline de filtro/ordenação por proximidade
-- [ ] Integrar feed de proximidade à tela principal do app
-- [ ] Tela para configurar raio de atendimento do prestador
-- [ ] Modo "Preciso agora" na interface de publicação
+- [x] Integrar feed de proximidade à tela principal do app
+- [x] Tela para configurar raio de atendimento do prestador
+- [x] Modo "Preciso agora" na interface de publicação
 - [ ] Notificações push
 - [ ] Fluxo de compras e adiantamento do valor do item
 - [ ] Fluxo de entrega
