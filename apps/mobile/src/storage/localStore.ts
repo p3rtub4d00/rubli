@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
+import { apiCreateDemand, apiListDemands } from '../api/client';
 
 const KEYS = {
   user: '@rubli/user',
@@ -63,16 +64,35 @@ export async function saveDemands(demands: Demand[]) {
   await archiveDemandRecords(demands);
   const active = demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
   await writeJson(KEYS.demands, active);
+
+  try {
+    // Persistencia compartilhada: o armazenamento local continua como cache/fallback.
+    await Promise.all(active.map((demand) => apiCreateDemand(demand)));
+  } catch {
+    // Offline-first: falha de rede não impede o uso local.
+  }
 }
 
 export async function getDemands(): Promise<Demand[]> {
-  const demands = await readJson<Demand[]>(KEYS.demands, []);
-  const closed = demands.filter((item) => item.status === 'completed' || item.status === 'cancelled');
+  const localDemands = await readJson<Demand[]>(KEYS.demands, []);
+  try {
+    const remoteDemands = await apiListDemands();
+    if (remoteDemands.length > 0 || localDemands.length === 0) {
+      const activeRemote = remoteDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
+      await writeJson(KEYS.demands, activeRemote);
+      await archiveDemandRecords(remoteDemands);
+      return activeRemote;
+    }
+  } catch {
+    // Sem API disponível, segue usando o cache local.
+  }
+
+  const closed = localDemands.filter((item) => item.status === 'completed' || item.status === 'cancelled');
   if (closed.length > 0) {
     await archiveDemandRecords(closed);
-    await writeJson(KEYS.demands, demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled'));
+    await writeJson(KEYS.demands, localDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled'));
   }
-  return demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
+  return localDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
 }
 
 export async function saveProposals(proposals: Proposal[]) { await writeJson(KEYS.proposals, proposals); }
