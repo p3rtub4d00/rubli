@@ -59,9 +59,9 @@ export interface Proposal {
   status: ProposalStatus;
   customerConfirmedAt?: string;
   providerConfirmedAt?: string;
-  version: number;
+  version?: number;
   parentProposalId?: string;
-  offeredBy: ProposalSide;
+  offeredBy?: ProposalSide;
   createdAt: string;
 }
 
