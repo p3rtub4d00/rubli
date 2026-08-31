@@ -137,3 +137,5 @@ export const DEMAND_CATEGORIES = {
 } as const;
 
 export { distanceKm, isValidCoordinates } from './geo';
+export { canProviderSubmitProposal, isProviderSubscriptionActive } from './subscription';
+export type { ProviderSubscription, ProviderSubscriptionPlan, ProviderSubscriptionStatus } from './subscription';
