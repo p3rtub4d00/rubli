@@ -14,14 +14,13 @@ interface ChatScreenProps {
   onAcceptProposal?: (proposal: Proposal) => Promise<void>;
   onConfirmAgreement?: (proposal: Proposal) => Promise<void>;
   onCounterProposal?: (proposal: Proposal, amount: number, message?: string) => Promise<void>;
-  onStartService?: (demand: Demand) => Promise<void>;
-  onCompleteService?: (demand: Demand) => Promise<void>;
+  onServiceAction?: (demand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') => Promise<void>;
 }
 
 function newMessageId() { return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
 function money(value: number) { return `R$ ${value.toFixed(2).replace('.', ',')}`; }
 
-export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', onBack, onAcceptProposal, onConfirmAgreement, onCounterProposal, onStartService, onCompleteService }: ChatScreenProps) {
+export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', onBack, onAcceptProposal, onConfirmAgreement, onCounterProposal, onServiceAction }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -81,17 +80,21 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
     try { await onCounterProposal(proposal, amount, counterMessage.trim() || undefined); setCounterOpen(false); setCounterAmount(''); setCounterMessage(''); await reload(); } catch { Alert.alert('Erro', 'Não foi possível enviar a contraproposta.'); } finally { setWorking(false); }
   }
 
-  async function startService() {
-    if (!demand || !bothConfirmed || isCustomer || demand.status !== 'accepted' || working || !onStartService) return;
-    setWorking(true); try { await onStartService(demand); await reload(); } catch { Alert.alert('Erro', 'Não foi possível iniciar o serviço.'); } finally { setWorking(false); }
+  async function runServiceAction(action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
+    if (!demand || !bothConfirmed || working || !onServiceAction) return;
+    setWorking(true);
+    try { await onServiceAction(demand, action); await reload(); }
+    catch { Alert.alert('Erro', 'Não foi possível atualizar a etapa do serviço.'); }
+    finally { setWorking(false); }
   }
 
-  async function completeService() {
-    if (!demand || !bothConfirmed || isCustomer || demand.status !== 'in_progress' || working || !onCompleteService) return;
-    setWorking(true); try { await onCompleteService(demand); await reload(); } catch { Alert.alert('Erro', 'Não foi possível concluir o serviço.'); } finally { setWorking(false); }
-  }
-
-  const executionMessage = !demand || !bothConfirmed ? null : demand.status === 'accepted' ? (isCustomer ? 'Aguardando o prestador iniciar o serviço.' : 'Serviço contratado. Você já pode iniciar.') : demand.status === 'in_progress' ? (isCustomer ? 'Serviço em andamento. Aguardando conclusão.' : 'Serviço em andamento.') : demand.status === 'completed' ? '✓ Serviço concluído. As avaliações ficam disponíveis no histórico.' : null;
+  const executionMessage = !demand || !bothConfirmed ? null
+    : demand.status === 'accepted' ? (isCustomer ? 'Aguardando o prestador informar que está a caminho.' : 'Serviço contratado. Informe quando estiver a caminho.')
+    : demand.status === 'provider_en_route' ? (isCustomer ? '🚗 O prestador está a caminho.' : '🚗 Você informou que está a caminho.')
+    : demand.status === 'provider_arrived' ? (isCustomer ? '📍 O prestador chegou ao local.' : '📍 Chegada registrada. Você já pode iniciar o serviço.')
+    : demand.status === 'in_progress' ? (isCustomer ? '🛠 Serviço em andamento.' : '🛠 Serviço em andamento. Conclua quando finalizar.')
+    : demand.status === 'awaiting_customer_confirmation' ? (isCustomer ? '✓ O prestador informou que concluiu. Confira e confirme a conclusão.' : '⏳ Aguardando o cliente confirmar a conclusão.')
+    : demand.status === 'completed' ? '✓ Serviço concluído e confirmado pelo cliente.' : null;
 
   return <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <View style={styles.header}><TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></TouchableOpacity><View style={styles.headerText}><Text style={styles.title}>{otherUserName}</Text><Text style={styles.subtitle}>{bothConfirmed ? (demand?.status === 'completed' ? 'Serviço concluído' : 'Serviço contratado') : 'Negociação pelo Rubli'}</Text></View></View>
@@ -111,7 +114,20 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
 
       {proposalHistory.length > 1 && <View style={styles.historyCard}><Text style={styles.historyTitle}>Histórico da negociação</Text>{proposalHistory.map((item, index) => <View key={item.id} style={styles.historyRow}><Text style={styles.historyVersion}>#{item.version ?? index + 1}</Text><View style={styles.historyText}><Text style={styles.historyAmount}>{money(item.amount)}</Text><Text style={styles.historyMeta}>{item.offeredBy === 'customer' ? 'Cliente' : 'Prestador'} · {item.status === 'superseded' ? 'substituída' : item.status === 'accepted' ? 'aceita' : 'pendente'}</Text>{item.message && <Text style={styles.historyMessage}>{item.message}</Text>}</View></View>)}</View>}
 
-      {demand && <View style={styles.executionCard}><Text style={styles.executionTitle}>Execução do serviço</Text><View style={styles.stepRow}><Text style={[styles.stepDot, bothConfirmed ? styles.stepDone : styles.stepPending]}>1</Text><Text style={styles.stepText}>Acordo confirmado pelos dois lados</Text></View><View style={styles.stepRow}><Text style={[styles.stepDot, demand.status === 'in_progress' || demand.status === 'completed' ? styles.stepDone : styles.stepPending]}>2</Text><Text style={styles.stepText}>Serviço em andamento</Text></View><View style={styles.stepRow}><Text style={[styles.stepDot, demand.status === 'completed' ? styles.stepDone : styles.stepPending]}>3</Text><Text style={styles.stepText}>Serviço concluído</Text></View>{executionMessage && <Text style={styles.executionStatus}>{executionMessage}</Text>}{!isCustomer && bothConfirmed && demand.status === 'accepted' && onStartService && <TouchableOpacity style={styles.actionButton} onPress={() => startService().catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Iniciando...' : '▶ Iniciar serviço'}</Text></TouchableOpacity>}{!isCustomer && bothConfirmed && demand.status === 'in_progress' && onCompleteService && <TouchableOpacity style={styles.completeButton} onPress={() => completeService().catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Concluindo...' : '✓ Concluir serviço'}</Text></TouchableOpacity>}</View>}
+      {demand && <View style={styles.executionCard}><Text style={styles.executionTitle}>Acompanhamento do serviço</Text>
+        <View style={styles.stepRow}><Text style={[styles.stepDot, bothConfirmed ? styles.stepDone : styles.stepPending]}>1</Text><Text style={styles.stepText}>Acordo confirmado</Text></View>
+        <View style={styles.stepRow}><Text style={[styles.stepDot, ['provider_en_route','provider_arrived','in_progress','awaiting_customer_confirmation','completed'].includes(demand.status) ? styles.stepDone : styles.stepPending]}>2</Text><Text style={styles.stepText}>Prestador a caminho</Text></View>
+        <View style={styles.stepRow}><Text style={[styles.stepDot, ['provider_arrived','in_progress','awaiting_customer_confirmation','completed'].includes(demand.status) ? styles.stepDone : styles.stepPending]}>3</Text><Text style={styles.stepText}>Chegada ao local</Text></View>
+        <View style={styles.stepRow}><Text style={[styles.stepDot, ['in_progress','awaiting_customer_confirmation','completed'].includes(demand.status) ? styles.stepDone : styles.stepPending]}>4</Text><Text style={styles.stepText}>Serviço em andamento</Text></View>
+        <View style={styles.stepRow}><Text style={[styles.stepDot, ['awaiting_customer_confirmation','completed'].includes(demand.status) ? styles.stepDone : styles.stepPending]}>5</Text><Text style={styles.stepText}>Aguardando confirmação do cliente</Text></View>
+        <View style={styles.stepRow}><Text style={[styles.stepDot, demand.status === 'completed' ? styles.stepDone : styles.stepPending]}>6</Text><Text style={styles.stepText}>Serviço concluído</Text></View>
+        {executionMessage && <Text style={styles.executionStatus}>{executionMessage}</Text>}
+        {!isCustomer && bothConfirmed && demand.status === 'accepted' && onServiceAction && <TouchableOpacity style={styles.actionButton} onPress={() => runServiceAction('en_route').catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Atualizando...' : '🚗 Estou a caminho'}</Text></TouchableOpacity>}
+        {!isCustomer && demand.status === 'provider_en_route' && onServiceAction && <TouchableOpacity style={styles.actionButton} onPress={() => runServiceAction('arrived').catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Atualizando...' : '📍 Cheguei ao local'}</Text></TouchableOpacity>}
+        {!isCustomer && demand.status === 'provider_arrived' && onServiceAction && <TouchableOpacity style={styles.actionButton} onPress={() => runServiceAction('start').catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Iniciando...' : '▶ Iniciar serviço'}</Text></TouchableOpacity>}
+        {!isCustomer && demand.status === 'in_progress' && onServiceAction && <TouchableOpacity style={styles.completeButton} onPress={() => runServiceAction('request_confirmation').catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Enviando...' : '✓ Solicitar confirmação do cliente'}</Text></TouchableOpacity>}
+        {isCustomer && demand.status === 'awaiting_customer_confirmation' && onServiceAction && <TouchableOpacity style={styles.completeButton} onPress={() => runServiceAction('confirm_completion').catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Confirmando...' : '✓ Confirmar conclusão do serviço'}</Text></TouchableOpacity>}
+      </View>}
 
       <View style={styles.notice}><Text style={styles.noticeTitle}>Negociação vinculada à demanda</Text><Text style={styles.noticeText}>Combine valor, horário e detalhes aqui. Cada contraproposta fica registrada no histórico.</Text></View>
       {currentConversationMessages.length === 0 ? <Text style={styles.empty}>Nenhuma mensagem ainda. Comece a conversa.</Text> : currentConversationMessages.map((message) => { const mine = message.senderId === currentUserId; return <View key={message.id} style={[styles.bubble, mine ? styles.mine : styles.theirs]}><Text style={mine ? styles.mineText : styles.theirsText}>{message.text}</Text><Text style={mine ? styles.mineTime : styles.theirsTime}>{new Date(message.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text></View>; })}
