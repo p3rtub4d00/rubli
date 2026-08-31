@@ -7,6 +7,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerDemandRoutes } from './routes/demands.js';
 import { registerProposalRoutes } from './routes/proposals.js';
 import { registerChatRoutes } from './routes/chat.js';
+import { registerNearbyRoutes } from './routes/nearby.js';
 
 const app = Fastify({ logger: true });
 
@@ -16,6 +17,7 @@ await registerAuthRoutes(app);
 await registerDemandRoutes(app);
 await registerProposalRoutes(app);
 await registerChatRoutes(app);
+await registerNearbyRoutes(app);
 
 const mongoUri = process.env.MONGODB_URI;
 let mongoClient: MongoClient | undefined;
