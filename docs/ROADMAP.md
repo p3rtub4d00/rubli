@@ -19,6 +19,8 @@
 - [x] API de conversas e mensagens
 - [x] Tela de chat integrada ao fluxo de propostas
 - [ ] Contraproposta formal com histórico de versões
+- [x] Fluxo de serviço: aceite, início e conclusão
+- [x] Avaliação do serviço com estrelas e comentário
 - [ ] Histórico de demandas
 - [ ] Status em tempo real
 
@@ -40,7 +42,7 @@
 ## Fase 4 — Confiança e pagamentos
 - [ ] Verificação de telefone
 - [ ] Verificação de identidade de prestadores
-- [ ] Avaliações
+- [x] Estrutura local de avaliações
 - [ ] Pix e intermediador de pagamentos
 - [ ] Regras de cancelamento e disputas
 - [ ] Carteira e repasses
