@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { ChatMessage, Conversation, Demand, ServiceRating, User } from '@rubli/shared';
+import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
 
 const KEYS = {
   user: '@rubli/user',
