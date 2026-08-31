@@ -100,20 +100,40 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     setDemands(nextDemands);
   }
 
-  async function startService(nextDemand: Demand) {
-    if (user.id !== nextDemand.acceptedProviderId || nextDemand.status !== 'accepted') throw new Error('Somente o prestador contratado pode iniciar o serviço.');
+  async function updateServiceStage(nextDemand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
     const now = new Date().toISOString();
-    const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status: 'in_progress' as const, startedAt: now, updatedAt: now } : item);
-    await saveDemands(next);
-    setDemands(next);
-  }
+    const isProvider = user.id === nextDemand.acceptedProviderId;
+    const isCustomer = user.id === conversation.customerId;
 
-  async function completeService(nextDemand: Demand) {
-    if (user.id !== nextDemand.acceptedProviderId || nextDemand.status !== 'in_progress') throw new Error('Somente o prestador contratado pode concluir o serviço.');
-    const now = new Date().toISOString();
-    const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status: 'completed' as const, completedAt: now, updatedAt: now } : item);
-    await saveDemands(next);
-    setDemands(next);
+    if (action === 'en_route') {
+      if (!isProvider || nextDemand.status !== 'accepted') throw new Error('Somente o prestador contratado pode informar o deslocamento.');
+      const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status: 'provider_en_route' as const, enRouteAt: now, updatedAt: now } : item);
+      await saveDemands(next); setDemands(next); return;
+    }
+
+    if (action === 'arrived') {
+      if (!isProvider || nextDemand.status !== 'provider_en_route') throw new Error('O prestador deve estar a caminho para registrar a chegada.');
+      const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status: 'provider_arrived' as const, arrivedAt: now, updatedAt: now } : item);
+      await saveDemands(next); setDemands(next); return;
+    }
+
+    if (action === 'start') {
+      if (!isProvider || nextDemand.status !== 'provider_arrived') throw new Error('Registre a chegada antes de iniciar o serviço.');
+      const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status: 'in_progress' as const, startedAt: now, updatedAt: now } : item);
+      await saveDemands(next); setDemands(next); return;
+    }
+
+    if (action === 'request_confirmation') {
+      if (!isProvider || nextDemand.status !== 'in_progress') throw new Error('Somente o prestador pode solicitar a confirmação da conclusão.');
+      const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status: 'awaiting_customer_confirmation' as const, completionRequestedAt: now, updatedAt: now } : item);
+      await saveDemands(next); setDemands(next); return;
+    }
+
+    if (action === 'confirm_completion') {
+      if (!isCustomer || nextDemand.status !== 'awaiting_customer_confirmation') throw new Error('Somente o cliente pode confirmar a conclusão.');
+      const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status: 'completed' as const, customerConfirmedCompletionAt: now, completedAt: now, updatedAt: now } : item);
+      await saveDemands(next); setDemands(next); return;
+    }
   }
 
   if (!demand || !currentProposal) return <View style={{ flex: 1, backgroundColor: '#F7F9FC' }} />;
@@ -126,7 +146,6 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     onAcceptProposal={acceptProposal}
     onConfirmAgreement={confirmAgreement}
     onCounterProposal={sendCounterProposal}
-    onStartService={startService}
-    onCompleteService={completeService}
+    onServiceAction={updateServiceStage}
   />;
 }
