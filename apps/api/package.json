@@ -13,6 +13,7 @@
   "dependencies": {
     "@fastify/cors": "latest",
     "@fastify/helmet": "latest",
+    "@rubli/shared": "workspace:*",
     "dotenv": "latest",
     "fastify": "latest",
     "mongodb": "latest"
