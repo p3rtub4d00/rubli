@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, View } from 'react-native';
-import type { Conversation, Demand, Proposal, User } from '@rubli/shared';
-import { getDemands, getProposals, saveDemands, saveProposals } from '../storage/localStore';
+import type { Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
+import { getDemands, getProposals, getRatings, getUsers, saveDemands, saveProposals } from '../storage/localStore';
 import { ChatScreen } from './ChatScreen';
 
 interface Props {
@@ -13,11 +13,15 @@ interface Props {
 export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
   const [demands, setDemands] = useState<Demand[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [providerProfile, setProviderProfile] = useState<User | null>(null);
+  const [providerRatings, setProviderRatings] = useState<ServiceRating[]>([]);
 
   async function reload() {
-    const [nextDemands, nextProposals] = await Promise.all([getDemands(), getProposals()]);
+    const [nextDemands, nextProposals, users, ratings] = await Promise.all([getDemands(), getProposals(), getUsers(), getRatings()]);
     setDemands(nextDemands);
     setProposals(nextProposals);
+    setProviderProfile(users.find((item) => item.id === conversation.providerId) ?? null);
+    setProviderRatings(ratings.filter((item) => item.providerId === conversation.providerId));
   }
 
   useEffect(() => {
@@ -141,7 +145,10 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
   return <ChatScreen
     conversation={conversation}
     currentUserId={user.id}
-    otherUserName={user.id === conversation.customerId ? 'Prestador' : 'Cliente'}
+    otherUserName={user.id === conversation.customerId ? (providerProfile?.name ?? 'Prestador') : 'Cliente'}
+    providerProfile={providerProfile}
+    providerRatings={providerRatings}
+    isCustomer={user.id === conversation.customerId}
     onBack={onBack}
     onAcceptProposal={acceptProposal}
     onConfirmAgreement={confirmAgreement}
