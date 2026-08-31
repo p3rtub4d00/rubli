@@ -3,11 +3,13 @@
 ## Fase 1 — MVP local-first
 - [x] Estrutura monorepo
 - [x] Tipos compartilhados
+- [x] Cadastro local de conta com nome, telefone, e-mail e perfil de uso
 - [x] Perfil inicial de cliente/prestador
 - [x] Criação de demanda local
 - [x] Categorias de serviço, compra, entrega e frete
 - [x] API inicial de usuários e demandas
 - [x] API sem dependência obrigatória de MongoDB
+- [ ] Autenticação segura com senha e recuperação de acesso
 
 ## Fase 2 — Marketplace de demandas
 - [x] Feed básico de demandas disponíveis
