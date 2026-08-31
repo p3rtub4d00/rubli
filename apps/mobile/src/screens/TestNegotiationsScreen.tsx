@@ -63,14 +63,31 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
     setProposals(nextProposals); setDemands(nextDemands);
   }
 
+  async function startServiceFromChat(demand: Demand) {
+    if (user.id !== demand.acceptedProviderId || demand.status !== 'accepted') throw new Error('Somente o prestador contratado pode iniciar este serviço.');
+    const now = new Date().toISOString();
+    const nextDemands = demands.map((item) => item.id === demand.id ? { ...item, status: 'in_progress' as const, startedAt: now, updatedAt: now } : item);
+    await saveDemands(nextDemands); setDemands(nextDemands);
+  }
+
+  async function completeServiceFromChat(demand: Demand) {
+    if (user.id !== demand.acceptedProviderId || demand.status !== 'in_progress') throw new Error('Somente o prestador contratado pode concluir este serviço.');
+    const now = new Date().toISOString();
+    const nextDemands = demands.map((item) => item.id === demand.id ? { ...item, status: 'completed' as const, completedAt: now, updatedAt: now } : item);
+    await saveDemands(nextDemands); setDemands(nextDemands);
+  }
+
   if (activeConversation) {
     const activeProposal = proposals.find((item) => item.demandId === activeConversation.demandId && item.providerId === activeConversation.providerId);
+    const activeDemand = demands.find((item) => item.id === activeConversation.demandId);
     return <ChatScreen
       conversation={activeConversation}
       currentUserId={user.id}
       otherUserName={user.id === activeConversation.customerId ? profiles.find((item) => item.id === activeConversation.providerId)?.name : profiles.find((item) => item.id === activeConversation.customerId)?.name}
       onAcceptProposal={activeProposal ? acceptProposalFromChat : undefined}
       onConfirmAgreement={activeProposal ? confirmProviderAgreement : undefined}
+      onStartService={activeDemand ? startServiceFromChat : undefined}
+      onCompleteService={activeDemand ? completeServiceFromChat : undefined}
       onBack={() => { setActiveConversation(null); reload().catch(() => undefined); }}
     />;
   }
