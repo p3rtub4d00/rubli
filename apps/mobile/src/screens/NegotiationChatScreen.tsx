@@ -136,7 +136,7 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     }
   }
 
-  if (!demand || !currentProposal) return <View style={{ flex: 1, backgroundColor: '#F7F9FC' }} />;
+  if (!demand) return <View style={{ flex: 1, backgroundColor: '#F7F9FC' }} />;
 
   return <ChatScreen
     conversation={conversation}
