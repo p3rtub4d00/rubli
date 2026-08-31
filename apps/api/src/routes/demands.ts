@@ -32,6 +32,7 @@ export async function registerDemandRoutes(app: FastifyInstance) {
       locationLabel: body.locationLabel.trim(),
       latitude: body.latitude,
       longitude: body.longitude,
+      isUrgent: body.isUrgent === true,
       status: 'open',
       createdAt: now,
       updatedAt: now,
