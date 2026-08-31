@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { ChatMessage, Conversation, Demand, Proposal, Rating, User } from '@rubli/shared';
-import { getConversations, getDemands, getMessages, getProposals, saveConversations } from '../storage/localStore';
+import { getConversations, getDemands, getMessages, getProposals, saveConversations, saveDemands, saveProposals } from '../storage/localStore';
 import { getRatings } from '../profile/profileStore';
 import { ChatScreen } from './ChatScreen';
 import { PublicProfileScreen } from './PublicProfileScreen';
@@ -41,7 +41,31 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
     setActiveConversation(conversation);
   }
 
-  if (activeConversation) return <ChatScreen conversation={activeConversation} currentUserId={user.id} otherUserName={user.id === activeConversation.customerId ? profiles.find((item) => item.id === activeConversation.providerId)?.name : profiles.find((item) => item.id === activeConversation.customerId)?.name} onBack={() => { setActiveConversation(null); reload().catch(() => undefined); }} />;
+  async function acceptProposalFromChat(proposal: Proposal) {
+    if (user.id !== proposalDemandCustomerId(proposal) || proposal.status !== 'pending') return;
+    const demand = demands.find((item) => item.id === proposal.demandId);
+    if (!demand || demand.requesterId !== user.id) return;
+    const nextProposals = proposals.map((item) => item.demandId === demand.id ? { ...item, status: item.id === proposal.id ? ('accepted' as const) : item.status === 'pending' ? ('rejected' as const) : item.status } : item);
+    const nextDemands = demands.map((item) => item.id === demand.id ? { ...item, status: 'accepted' as const, acceptedProviderId: proposal.providerId, updatedAt: new Date().toISOString() } : item);
+    await saveProposals(nextProposals); await saveDemands(nextDemands);
+    setProposals(nextProposals); setDemands(nextDemands);
+    setActiveConversation((current) => current ? { ...current } : current);
+  }
+
+  function proposalDemandCustomerId(proposal: Proposal) {
+    return demands.find((item) => item.id === proposal.demandId)?.requesterId;
+  }
+
+  if (activeConversation) {
+    const activeProposal = proposals.find((item) => item.demandId === activeConversation.demandId && item.providerId === activeConversation.providerId);
+    return <ChatScreen
+      conversation={activeConversation}
+      currentUserId={user.id}
+      otherUserName={user.id === activeConversation.customerId ? profiles.find((item) => item.id === activeConversation.providerId)?.name : profiles.find((item) => item.id === activeConversation.customerId)?.name}
+      onAcceptProposal={activeProposal ? acceptProposalFromChat : undefined}
+      onBack={() => { setActiveConversation(null); reload().catch(() => undefined); }}
+    />;
+  }
 
   return <View style={styles.container}>
     <View style={styles.header}><View style={styles.headerText}><Text style={styles.title}>Negociações</Text><Text style={styles.subtitle}>{user.role === 'provider' ? 'Suas propostas e conversas' : 'Suas demandas e propostas recebidas'}</Text></View><TouchableOpacity onPress={onClose} style={styles.closeButton}><Text style={styles.closeText}>Fechar</Text></TouchableOpacity></View>
