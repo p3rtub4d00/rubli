@@ -11,7 +11,8 @@ export type DemandStatus =
   | 'completed'
   | 'cancelled';
 
-export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn';
+export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
+export type ProposalSide = 'customer' | 'provider';
 
 export interface User {
   id: string;
@@ -58,6 +59,9 @@ export interface Proposal {
   status: ProposalStatus;
   customerConfirmedAt?: string;
   providerConfirmedAt?: string;
+  version: number;
+  parentProposalId?: string;
+  offeredBy: ProposalSide;
   createdAt: string;
 }
 
@@ -66,6 +70,14 @@ export interface CreateProposalInput {
   providerId: string;
   amount: number;
   message?: string;
+}
+
+export interface CreateCounterProposalInput {
+  demandId: string;
+  providerId: string;
+  amount: number;
+  message?: string;
+  parentProposalId: string;
 }
 
 export type ChatParticipantRole = 'customer' | 'provider';
