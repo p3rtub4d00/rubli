@@ -36,7 +36,9 @@
 - [x] Tela para configurar raio de atendimento do prestador
 - [x] Modo "Preciso agora" na interface de publicação
 - [x] Central de notificações internas no modo local
-- [ ] Notificações push
+- [ ] Push para oportunidades de serviço
+- [ ] Deep link de notificação para a demanda
+- [ ] Preferências de disponibilidade do prestador
 - [ ] Fluxo de compras e adiantamento do valor do item
 - [ ] Fluxo de entrega
 - [ ] Fluxo de frete
@@ -52,12 +54,15 @@
 - [ ] Carteira e repasses do Rubli (fora do MVP; pagamentos dos serviços são diretos entre cliente e prestador)
 
 ## Fase 5 — Administração e monetização
-- [ ] Painel administrativo
-- [ ] Assinatura mensal dos prestadores
-- [ ] Planos para profissionais
+- [x] Modelo comercial: mensalidade do prestador e pagamento do serviço direto ao prestador
+- [x] Modelo compartilhado de assinatura do prestador
+- [x] Política local de período de teste e vencimento
+- [ ] Tela de planos e assinatura do prestador
 - [ ] Período de teste para novos prestadores
 - [ ] Controle de assinatura: ativa, em teste, vencida e suspensa
-- [ ] Bloqueio de novas propostas para prestador com assinatura vencida
+- [ ] Bloqueio real de novas propostas para prestador com assinatura vencida
+- [ ] Cobrança recorrente real da assinatura
+- [ ] Painel administrativo
 - [ ] Destaques e publicidade local
 - [ ] Cupons e programa de indicação
 - [ ] Métricas e auditoria
@@ -68,6 +73,14 @@
 - O preço do serviço é negociado entre cliente e prestador dentro da plataforma.
 - O pagamento do serviço é realizado diretamente pelo cliente ao prestador, fora da custódia do Rubli.
 - O Rubli não retém nem repassa o valor do serviço no MVP.
+
+### Modelo de oportunidades para prestadores
+- O prestador habilita-se como "Disponível" para receber oportunidades.
+- O sistema filtra oportunidades por categoria, raio e disponibilidade.
+- Demandas urgentes podem gerar notificação destacada.
+- No produto real, o backend enviará push para o aparelho mesmo com o app em segundo plano/fechado.
+- Ao tocar na notificação, o prestador deve abrir diretamente a demanda correspondente para decidir se envia proposta.
+- O app deve evitar duplicidade de alertas e não deve enviar oportunidade a prestador sem assinatura ativa.
 
 ## Fase 6 — Produção
 - [ ] Conta oficial da marca
