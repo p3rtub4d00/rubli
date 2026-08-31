@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { distanceKm, isValidCoordinates } from '@rubli/shared/src/geo.js';
+import { distanceKm, isValidCoordinates } from '@rubli/shared';
 import { memoryStore } from '../store/memoryStore.js';
 
 const DEFAULT_RADIUS_KM = 10;
