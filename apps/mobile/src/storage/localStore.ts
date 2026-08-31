@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { ChatMessage, Conversation, Demand, Proposal, User } from '@rubli/shared';
+import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
 
 const KEYS = {
   user: '@rubli/user',
@@ -7,6 +7,7 @@ const KEYS = {
   proposals: '@rubli/proposals',
   conversations: '@rubli/conversations',
   messages: '@rubli/messages',
+  ratings: '@rubli/ratings',
 } as const;
 
 async function readJson<T>(key: string, fallback: T): Promise<T> {
@@ -18,7 +19,14 @@ async function writeJson<T>(key: string, value: T) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
-export async function saveUser(user: User) { await writeJson(KEYS.user, user); }
+export async function saveUser(user: User | null) {
+  if (!user) {
+    await AsyncStorage.removeItem(KEYS.user);
+    return;
+  }
+  await writeJson(KEYS.user, user);
+}
+
 export async function getUser(): Promise<User | null> { return readJson<User | null>(KEYS.user, null); }
 
 export async function saveDemands(demands: Demand[]) { await writeJson(KEYS.demands, demands); }
@@ -33,6 +41,9 @@ export async function getConversations(): Promise<Conversation[]> { return readJ
 export async function saveMessages(messages: ChatMessage[]) { await writeJson(KEYS.messages, messages); }
 export async function getMessages(): Promise<ChatMessage[]> { return readJson<ChatMessage[]>(KEYS.messages, []); }
 
+export async function saveRatings(ratings: ServiceRating[]) { await writeJson(KEYS.ratings, ratings); }
+export async function getRatings(): Promise<ServiceRating[]> { return readJson<ServiceRating[]>(KEYS.ratings, []); }
+
 export async function clearLocalData() {
   await AsyncStorage.multiRemove([
     KEYS.user,
@@ -40,5 +51,6 @@ export async function clearLocalData() {
     KEYS.proposals,
     KEYS.conversations,
     KEYS.messages,
+    KEYS.ratings,
   ]);
 }
