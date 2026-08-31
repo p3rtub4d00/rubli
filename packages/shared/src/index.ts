@@ -26,6 +26,8 @@ export interface User {
   city?: string;
   avatarUri?: string;
   profilePhotos?: string[];
+  isAvailable?: boolean;
+  availabilityUpdatedAt?: string;
   createdAt: string;
 }
 
