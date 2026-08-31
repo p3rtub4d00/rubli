@@ -44,7 +44,6 @@ export interface Demand {
   latitude?: number;
   longitude?: number;
   isUrgent?: boolean;
-  /** Fotos anexadas pelo cliente para ajudar o prestador a entender o serviço. */
   photoUris?: string[];
   status: DemandStatus;
   createdAt: string;
