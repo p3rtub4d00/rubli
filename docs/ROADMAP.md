@@ -47,17 +47,27 @@
 - [x] Estrutura local de avaliações e reputação
 - [x] Perfil público com informações do usuário
 - [x] Fotos de perfil e portfólio local
-- [ ] Pix e intermediador de pagamentos
+- [ ] Pix e intermediador para cobrança da assinatura do prestador
 - [ ] Regras de cancelamento e disputas
-- [ ] Carteira e repasses
+- [ ] Carteira e repasses do Rubli (fora do MVP; pagamentos dos serviços são diretos entre cliente e prestador)
 
 ## Fase 5 — Administração e monetização
 - [ ] Painel administrativo
-- [ ] Comissão por demanda concluída
+- [ ] Assinatura mensal dos prestadores
 - [ ] Planos para profissionais
+- [ ] Período de teste para novos prestadores
+- [ ] Controle de assinatura: ativa, em teste, vencida e suspensa
+- [ ] Bloqueio de novas propostas para prestador com assinatura vencida
 - [ ] Destaques e publicidade local
 - [ ] Cupons e programa de indicação
 - [ ] Métricas e auditoria
+
+### Modelo comercial definido
+- O Rubli cobra mensalidade do prestador de serviço para acesso aos recursos e oportunidades da plataforma.
+- O cliente não paga taxa ao Rubli pela contratação.
+- O preço do serviço é negociado entre cliente e prestador dentro da plataforma.
+- O pagamento do serviço é realizado diretamente pelo cliente ao prestador, fora da custódia do Rubli.
+- O Rubli não retém nem repassa o valor do serviço no MVP.
 
 ## Fase 6 — Produção
 - [ ] Conta oficial da marca
