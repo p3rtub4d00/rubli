@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
+import type { ChatMessage, Conversation, Demand, ServiceRating, User } from '@rubli/shared';
 
 const KEYS = {
   user: '@rubli/user',
@@ -10,6 +10,9 @@ const KEYS = {
   ratings: '@rubli/ratings',
 } as const;
 
+const HISTORY_KEY = '@rubli/history_demands';
+const HISTORY_DATA_KEY = '@rubli/history_demand_data';
+
 async function readJson<T>(key: string, fallback: T): Promise<T> {
   const value = await AsyncStorage.getItem(key);
   return value ? (JSON.parse(value) as T) : fallback;
@@ -17,6 +20,27 @@ async function readJson<T>(key: string, fallback: T): Promise<T> {
 
 async function writeJson<T>(key: string, value: T) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
+}
+
+async function archiveDemandRecords(demands: Demand[]) {
+  const completed = demands.filter((item) => item.status === 'completed' || item.status === 'cancelled');
+  if (completed.length === 0) return;
+
+  const [historyIds, historyData] = await Promise.all([
+    readJson<string[]>(HISTORY_KEY, []),
+    readJson<Demand[]>(HISTORY_DATA_KEY, []),
+  ]);
+
+  const merged = [
+    ...completed,
+    ...historyData.filter((item) => !completed.some((closed) => closed.id === item.id)),
+  ];
+  const ids = Array.from(new Set([...completed.map((item) => item.id), ...historyIds]));
+
+  await AsyncStorage.multiSet([
+    [HISTORY_KEY, JSON.stringify(ids)],
+    [HISTORY_DATA_KEY, JSON.stringify(merged)],
+  ]);
 }
 
 export async function saveUser(user: User | null) {
@@ -29,8 +53,16 @@ export async function saveUser(user: User | null) {
 
 export async function getUser(): Promise<User | null> { return readJson<User | null>(KEYS.user, null); }
 
-export async function saveDemands(demands: Demand[]) { await writeJson(KEYS.demands, demands); }
-export async function getDemands(): Promise<Demand[]> { return readJson<Demand[]>(KEYS.demands, []); }
+export async function saveDemands(demands: Demand[]) {
+  await archiveDemandRecords(demands);
+  const active = demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
+  await writeJson(KEYS.demands, active);
+}
+
+export async function getDemands(): Promise<Demand[]> {
+  const demands = await readJson<Demand[]>(KEYS.demands, []);
+  return demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
+}
 
 export async function saveProposals(proposals: Proposal[]) { await writeJson(KEYS.proposals, proposals); }
 export async function getProposals(): Promise<Proposal[]> { return readJson<Proposal[]>(KEYS.proposals, []); }
@@ -52,5 +84,7 @@ export async function clearLocalData() {
     KEYS.conversations,
     KEYS.messages,
     KEYS.ratings,
+    HISTORY_KEY,
+    HISTORY_DATA_KEY,
   ]);
 }
