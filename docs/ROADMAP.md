@@ -18,6 +18,7 @@
 - [x] Base de conversas e mensagens no modo local-first
 - [x] API de conversas e mensagens
 - [x] Tela de chat integrada ao fluxo de propostas
+- [x] Central de mensagens com lista de conversas e prévia
 - [ ] Contraproposta formal com histórico de versões
 - [x] Fluxo de serviço: aceite, início e conclusão
 - [x] Avaliação mútua de cliente e prestador
@@ -34,6 +35,7 @@
 - [x] Integrar feed de proximidade à tela principal do app
 - [x] Tela para configurar raio de atendimento do prestador
 - [x] Modo "Preciso agora" na interface de publicação
+- [x] Central de notificações internas no modo local
 - [ ] Notificações push
 - [ ] Fluxo de compras e adiantamento do valor do item
 - [ ] Fluxo de entrega
