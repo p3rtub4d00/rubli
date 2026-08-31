@@ -19,7 +19,7 @@
 - [x] API de conversas e mensagens
 - [x] Tela de chat integrada ao fluxo de propostas
 - [x] Central de mensagens com lista de conversas e prévia
-- [ ] Contraproposta formal com histórico de versões
+- [x] Contraproposta formal com histórico de versões
 - [x] Fluxo de serviço: aceite, início e conclusão
 - [x] Avaliação mútua de cliente e prestador
 - [x] Histórico local de demandas concluídas
