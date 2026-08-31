@@ -1,4 +1,4 @@
 import { registerRootComponent } from 'expo';
-import App from './App';
+import AccountGate from './AccountGate';
 
-registerRootComponent(App);
+registerRootComponent(AccountGate);
