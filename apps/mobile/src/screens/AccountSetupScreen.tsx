@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { User, UserRole } from '@rubli/shared';
+import { DEMAND_CATEGORIES } from '@rubli/shared';
 import { saveUser } from '../storage/localStore';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
 const BG = '#F7F9FC';
 const RADIUS_OPTIONS = [5, 10, 20, 50, 100] as const;
+const PROVIDER_CATEGORIES = DEMAND_CATEGORIES.service;
 
 function newId() {
   return `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -30,6 +32,16 @@ export function AccountSetupScreen({ onCreated }: AccountSetupScreenProps) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<UserRole>('customer');
   const [radius, setRadius] = useState(10);
+  const [serviceCategories, setServiceCategories] = useState<string[]>([]);
+
+  const categoryHint = useMemo(() => {
+    if (serviceCategories.length === 0) return 'Selecione pelo menos uma área.';
+    return `${serviceCategories.length} área(s) selecionada(s)`;
+  }, [serviceCategories.length]);
+
+  function toggleCategory(category: string) {
+    setServiceCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category]);
+  }
 
   async function createAccount() {
     const cleanName = name.trim();
@@ -40,14 +52,16 @@ export function AccountSetupScreen({ onCreated }: AccountSetupScreenProps) {
       Alert.alert('Nome inválido', 'Informe seu nome completo.');
       return;
     }
-
     if (cleanPhone.length < 10 || cleanPhone.length > 13) {
       Alert.alert('Telefone inválido', 'Informe um telefone celular válido com DDD.');
       return;
     }
-
     if (!isValidEmail(cleanEmail)) {
       Alert.alert('E-mail inválido', 'Informe um e-mail válido.');
+      return;
+    }
+    if (role === 'provider' && serviceCategories.length === 0) {
+      Alert.alert('Área de atuação', 'Selecione pelo menos uma área de serviço.');
       return;
     }
 
@@ -58,6 +72,7 @@ export function AccountSetupScreen({ onCreated }: AccountSetupScreenProps) {
       email: cleanEmail,
       role,
       serviceRadiusKm: role === 'provider' ? radius : undefined,
+      serviceCategories: role === 'provider' ? serviceCategories : undefined,
       createdAt: new Date().toISOString(),
     };
 
@@ -74,41 +89,16 @@ export function AccountSetupScreen({ onCreated }: AccountSetupScreenProps) {
 
           <View style={styles.card}>
             <Text style={styles.heading}>Crie sua conta</Text>
-            <Text style={styles.description}>
-              Nesta fase inicial, seus dados ficam somente neste aparelho. O cadastro online e a verificação da conta serão conectados ao servidor posteriormente.
-            </Text>
+            <Text style={styles.description}>Nesta fase de testes, os dados ficam somente neste aparelho. Depois ligaremos autenticação, confirmação e recuperação ao servidor.</Text>
 
             <Text style={styles.label}>Nome completo</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Ex.: João da Silva"
-              placeholderTextColor="#8491A3"
-              autoCapitalize="words"
-              style={styles.input}
-            />
+            <TextInput value={name} onChangeText={setName} placeholder="Ex.: João da Silva" placeholderTextColor="#8491A3" autoCapitalize="words" style={styles.input} />
 
             <Text style={styles.label}>Celular</Text>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="(69) 99999-9999"
-              placeholderTextColor="#8491A3"
-              keyboardType="phone-pad"
-              style={styles.input}
-            />
+            <TextInput value={phone} onChangeText={setPhone} placeholder="(69) 99999-9999" placeholderTextColor="#8491A3" keyboardType="phone-pad" style={styles.input} />
 
             <Text style={styles.label}>E-mail</Text>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              placeholder="voce@email.com"
-              placeholderTextColor="#8491A3"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-            />
+            <TextInput value={email} onChangeText={setEmail} placeholder="voce@email.com" placeholderTextColor="#8491A3" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} style={styles.input} />
 
             <Text style={styles.label}>Como você vai usar o Rubli?</Text>
             <View style={styles.rowWrap}>
@@ -124,6 +114,16 @@ export function AccountSetupScreen({ onCreated }: AccountSetupScreenProps) {
 
             {role === 'provider' && (
               <>
+                <Text style={styles.label}>Áreas em que você trabalha</Text>
+                <Text style={styles.helper}>{categoryHint}</Text>
+                <View style={styles.rowWrap}>
+                  {PROVIDER_CATEGORIES.map((category) => (
+                    <TouchableOpacity key={category} onPress={() => toggleCategory(category)} style={[styles.pill, serviceCategories.includes(category) && styles.pillActive]}>
+                      <Text style={[styles.pillText, serviceCategories.includes(category) && styles.pillTextActive]}>{category}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
                 <Text style={styles.label}>Raio inicial de atendimento</Text>
                 <View style={styles.rowWrap}>
                   {RADIUS_OPTIONS.map((value) => (
@@ -135,9 +135,7 @@ export function AccountSetupScreen({ onCreated }: AccountSetupScreenProps) {
               </>
             )}
 
-            <Text style={styles.notice}>
-              A próxima etapa incluirá confirmação de telefone/e-mail, senha, recuperação de acesso e verificação de identidade do prestador.
-            </Text>
+            <Text style={styles.notice}>Na versão de produção teremos senha segura, confirmação de telefone/e-mail, recuperação de conta e verificação de identidade do prestador.</Text>
 
             <TouchableOpacity style={styles.primaryButton} onPress={() => createAccount().catch(() => Alert.alert('Erro', 'Não foi possível salvar a conta localmente.'))}>
               <Text style={styles.primaryText}>Criar minha conta</Text>
@@ -159,6 +157,7 @@ const styles = StyleSheet.create({
   heading: { color: BRAND, fontSize: 28, fontWeight: '900', marginBottom: 8 },
   description: { color: '#67768A', lineHeight: 20, marginBottom: 18 },
   label: { color: BRAND, fontWeight: '800', marginBottom: 7, marginTop: 6 },
+  helper: { color: '#748196', fontSize: 12, marginBottom: 8 },
   input: { backgroundColor: '#F7F9FC', borderWidth: 1, borderColor: '#D8E0EA', borderRadius: 14, padding: 14, color: '#24354A', fontSize: 16, marginBottom: 8 },
   rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   option: { flex: 1, minWidth: 140, borderWidth: 1, borderColor: '#D4DDE8', borderRadius: 16, padding: 14, backgroundColor: '#FFF' },
