@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import { useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { User } from '@rubli/shared';
 import { updateStoredUser } from '../profile/profileStore';
@@ -11,13 +12,13 @@ const RADIUS_OPTIONS = [5, 10, 20, 50, 100] as const;
 interface Props { user: User; onSaved: (user: User) => void; onClose: () => void; }
 
 export function MyProfileScreen({ user, onSaved, onClose }: Props) {
-  const [name, setName] = ReactCompat.useState(user.name);
-  const [bio, setBio] = ReactCompat.useState(user.bio ?? '');
-  const [city, setCity] = ReactCompat.useState(user.city ?? '');
-  const [radius, setRadius] = ReactCompat.useState(user.serviceRadiusKm ?? 10);
-  const [categories, setCategories] = ReactCompat.useState<string[]>(user.serviceCategories ?? []);
-  const [avatarUri, setAvatarUri] = ReactCompat.useState(user.avatarUri);
-  const [photos, setPhotos] = ReactCompat.useState<string[]>(user.profilePhotos ?? []);
+  const [name, setName] = useState(user.name);
+  const [bio, setBio] = useState(user.bio ?? '');
+  const [city, setCity] = useState(user.city ?? '');
+  const [radius, setRadius] = useState(user.serviceRadiusKm ?? 10);
+  const [categories, setCategories] = useState<string[]>(user.serviceCategories ?? []);
+  const [avatarUri, setAvatarUri] = useState(user.avatarUri);
+  const [photos, setPhotos] = useState<string[]>(user.profilePhotos ?? []);
 
   async function pickAvatar() {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
@@ -54,8 +55,5 @@ export function MyProfileScreen({ user, onSaved, onClose }: Props) {
     <TouchableOpacity style={styles.primary} onPress={() => save().catch(() => Alert.alert('Erro', 'Não foi possível salvar o perfil.'))}><Text style={styles.primaryText}>Salvar perfil</Text></TouchableOpacity>
   </ScrollView>;
 }
-
-// Pequeno adaptador para manter o componente independente do estilo de hooks usado no restante do MVP.
-const ReactCompat = { useState: require('react').useState } as typeof import('react');
 
 const styles = StyleSheet.create({ content: { padding: 20, paddingBottom: 40 }, back: { color: ACCENT, fontWeight: '900', marginBottom: 14 }, title: { color: BRAND, fontSize: 28, fontWeight: '900', marginBottom: 18 }, avatarWrap: { alignItems: 'center', marginBottom: 18 }, avatar: { width: 104, height: 104, borderRadius: 52 }, avatarPlaceholder: { width: 104, height: 104, borderRadius: 52, backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center' }, avatarLetter: { color: '#FFF', fontSize: 38, fontWeight: '900' }, photoHint: { color: ACCENT, fontWeight: '800', marginTop: 7 }, label: { color: BRAND, fontWeight: '900', marginBottom: 7, marginTop: 9 }, input: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#D8E0EA', borderRadius: 14, padding: 14, fontSize: 16 }, multiline: { minHeight: 100, textAlignVertical: 'top' }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }, chip: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 99, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#FFF' }, chipActive: { backgroundColor: BRAND, borderColor: BRAND }, chipText: { color: '#566579', fontWeight: '700' }, chipTextActive: { color: '#FFF' }, photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }, photo: { width: 86, height: 86, borderRadius: 12 }, addPhoto: { width: 86, height: 86, borderRadius: 12, borderWidth: 1, borderColor: BRAND, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' }, addPhotoText: { color: BRAND, fontWeight: '900' }, notice: { backgroundColor: '#EAF1F8', borderRadius: 14, padding: 13, marginTop: 8, marginBottom: 16 }, noticeText: { color: '#566579', lineHeight: 19 }, primary: { backgroundColor: ACCENT, borderRadius: 14, padding: 16, alignItems: 'center' }, primaryText: { color: '#FFF', fontSize: 16, fontWeight: '900' }, });
