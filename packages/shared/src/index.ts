@@ -56,6 +56,8 @@ export interface Proposal {
   amount: number;
   message?: string;
   status: ProposalStatus;
+  customerConfirmedAt?: string;
+  providerConfirmedAt?: string;
   createdAt: string;
 }
 
@@ -103,7 +105,6 @@ export interface Rating {
   createdAt: string;
 }
 
-// Mantido para compatibilidade com dados locais criados em versões anteriores.
 export interface ServiceRating {
   id: string;
   demandId: string;
