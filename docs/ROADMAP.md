@@ -23,9 +23,14 @@
 ## Fase 3 — Operação local
 - [x] Captura de localização atual no aplicativo
 - [x] Armazenamento local de latitude/longitude da demanda
-- [ ] Feed real por proximidade e raio de atendimento
+- [x] Modelo compartilhado de urgência e raio de atendimento
+- [x] Cálculo de distância por coordenadas
+- [x] Endpoint API de demandas próximas com filtro de raio e urgência
+- [x] Serviço offline de filtro/ordenação por proximidade
+- [ ] Integrar feed de proximidade à tela principal do app
+- [ ] Tela para configurar raio de atendimento do prestador
+- [ ] Modo "Preciso agora" na interface de publicação
 - [ ] Notificações push
-- [ ] Modo "Preciso agora"
 - [ ] Fluxo de compras e adiantamento do valor do item
 - [ ] Fluxo de entrega
 - [ ] Fluxo de frete
