@@ -23,8 +23,8 @@ async function writeJson<T>(key: string, value: T) {
 }
 
 async function archiveDemandRecords(demands: Demand[]) {
-  const completed = demands.filter((item) => item.status === 'completed' || item.status === 'cancelled');
-  if (completed.length === 0) return;
+  const closed = demands.filter((item) => item.status === 'completed' || item.status === 'cancelled');
+  if (closed.length === 0) return;
 
   const [historyIds, historyData] = await Promise.all([
     readJson<string[]>(HISTORY_KEY, []),
@@ -32,10 +32,10 @@ async function archiveDemandRecords(demands: Demand[]) {
   ]);
 
   const merged = [
-    ...completed,
-    ...historyData.filter((item) => !completed.some((closed) => closed.id === item.id)),
+    ...closed,
+    ...historyData.filter((item) => !closed.some((closedDemand) => closedDemand.id === item.id)),
   ];
-  const ids = Array.from(new Set([...completed.map((item) => item.id), ...historyIds]));
+  const ids = Array.from(new Set([...closed.map((item) => item.id), ...historyIds]));
 
   await AsyncStorage.multiSet([
     [HISTORY_KEY, JSON.stringify(ids)],
@@ -61,6 +61,11 @@ export async function saveDemands(demands: Demand[]) {
 
 export async function getDemands(): Promise<Demand[]> {
   const demands = await readJson<Demand[]>(KEYS.demands, []);
+  const closed = demands.filter((item) => item.status === 'completed' || item.status === 'cancelled');
+  if (closed.length > 0) {
+    await archiveDemandRecords(closed);
+    await writeJson(KEYS.demands, demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled'));
+  }
   return demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
 }
 
