@@ -19,7 +19,15 @@
         "NSLocationWhenInUseUsageDescription": "O Rubli usa sua localização para encontrar demandas e oportunidades próximas."
       }
     },
-    "plugins": ["expo-location"],
+    "plugins": [
+      "expo-location",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "service-opportunities"
+        }
+      ]
+    ],
     "experiments": {
       "autolinkingModuleResolution": true
     }
