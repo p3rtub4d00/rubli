@@ -8,7 +8,6 @@ interface Props { user: User; conversation: Conversation; onBack: () => void; }
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
 const BG = '#F7F9FC';
-
 function money(value: number) { return `R$ ${value.toFixed(2).replace('.', ',')}`; }
 
 export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
@@ -28,40 +27,32 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     setProviderRatings(ratings.filter((item) => item.providerId === providerId));
   }
 
-  useEffect(() => { reload().catch(() => Alert.alert('Erro', 'Não foi possível carregar a negociação.')); }, [conversation.id, conversation.demandId, conversation.providerId]);
+  useEffect(() => {
+    let active = true;
+    const run = async () => { try { await reload(); } catch { if (active) Alert.alert('Erro', 'Não foi possível carregar a negociação.'); } };
+    run();
+    const interval = setInterval(() => { reload().catch(() => undefined); }, 2500);
+    return () => { active = false; clearInterval(interval); };
+  }, [conversation.id, conversation.demandId, conversation.providerId]);
 
   const demand = demands.find((item) => item.id === conversation.demandId) ?? null;
   const demandProposals = proposals.filter((item) => item.demandId === conversation.demandId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const conversationProposals = demandProposals.filter((item) => item.providerId === conversation.providerId);
   const currentProposal = conversationProposals.at(-1) ?? null;
   const acceptedProviderId = demand?.acceptedProviderId ?? currentProposal?.providerId;
-  const effectiveConversation: Conversation = acceptedProviderId && acceptedProviderId !== conversation.providerId
-    ? { ...conversation, providerId: acceptedProviderId }
-    : conversation;
+  const effectiveConversation: Conversation = acceptedProviderId && acceptedProviderId !== conversation.providerId ? { ...conversation, providerId: acceptedProviderId } : conversation;
 
   async function sendFirstProposal() {
     if (!demand || user.id !== conversation.providerId || currentProposal || sendingFirst) return;
     const amount = Number(firstAmount.replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) return Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
     const now = new Date().toISOString();
-    const proposal: Proposal = {
-      id: `pro_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      demandId: demand.id,
-      providerId: conversation.providerId,
-      amount: Math.round(amount * 100) / 100,
-      message: firstMessage.trim() || undefined,
-      status: 'pending',
-      version: 1,
-      offeredBy: 'provider',
-      createdAt: now,
-    };
+    const proposal: Proposal = { id: `pro_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, demandId: demand.id, providerId: conversation.providerId, amount: Math.round(amount * 100) / 100, message: firstMessage.trim() || undefined, status: 'pending', version: 1, offeredBy: 'provider', createdAt: now };
     const nextProposals = [proposal, ...proposals];
     const nextDemands = demands.map((item) => item.id === demand.id ? { ...item, status: 'negotiating' as const, updatedAt: now } : item);
     setSendingFirst(true);
-    try {
-      await saveProposals(nextProposals); await saveDemands(nextDemands);
-      setProposals(nextProposals); setDemands(nextDemands); setFirstAmount(''); setFirstMessage('');
-    } catch { Alert.alert('Erro', 'Não foi possível enviar sua proposta.'); }
+    try { await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands); setFirstAmount(''); setFirstMessage(''); }
+    catch { Alert.alert('Erro', 'Não foi possível enviar sua proposta.'); }
     finally { setSendingFirst(false); }
   }
 
@@ -71,10 +62,7 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     const recipientId = offerSide === 'provider' ? effectiveConversation.customerId : effectiveConversation.providerId;
     if (user.id !== recipientId) throw new Error('Somente quem recebeu a oferta pode aceitá-la.');
     const now = new Date().toISOString();
-    const nextProposals = proposals.map((item) => item.demandId === effectiveConversation.demandId
-      ? item.id === proposal.id
-        ? { ...item, status: 'accepted' as const, customerConfirmedAt: now, providerConfirmedAt: now }
-        : item.status === 'pending' ? { ...item, status: 'rejected' as const } : item : item);
+    const nextProposals = proposals.map((item) => item.demandId === effectiveConversation.demandId ? item.id === proposal.id ? { ...item, status: 'accepted' as const, customerConfirmedAt: now, providerConfirmedAt: now } : item.status === 'pending' ? { ...item, status: 'rejected' as const } : item : item);
     const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? { ...item, status: 'accepted' as const, acceptedProviderId: proposal.providerId, updatedAt: now } : item);
     await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands);
   }
@@ -113,12 +101,7 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     if (action === 'start') { if (!isProvider || nextDemand.status !== 'provider_arrived') throw new Error('Registre a chegada antes de iniciar o serviço.'); status = 'in_progress'; }
     if (action === 'request_confirmation') { if (!isProvider || nextDemand.status !== 'in_progress') throw new Error('Somente o prestador pode solicitar a confirmação da conclusão.'); status = 'awaiting_customer_confirmation'; }
     if (action === 'confirm_completion') { if (!isCustomer || nextDemand.status !== 'awaiting_customer_confirmation') throw new Error('Somente o cliente pode confirmar a conclusão.'); status = 'completed'; }
-    const next = demands.map((item) => item.id === nextDemand.id ? {
-      ...item, status, acceptedProviderId: item.acceptedProviderId ?? acceptedProviderId,
-      ...(action === 'en_route' ? { enRouteAt: now } : {}), ...(action === 'arrived' ? { arrivedAt: now } : {}),
-      ...(action === 'start' ? { startedAt: now } : {}), ...(action === 'request_confirmation' ? { completionRequestedAt: now } : {}),
-      ...(action === 'confirm_completion' ? { customerConfirmedCompletionAt: now, completedAt: now } : {}), updatedAt: now,
-    } : item);
+    const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status, acceptedProviderId: item.acceptedProviderId ?? acceptedProviderId, ...(action === 'en_route' ? { enRouteAt: now } : {}), ...(action === 'arrived' ? { arrivedAt: now } : {}), ...(action === 'start' ? { startedAt: now } : {}), ...(action === 'request_confirmation' ? { completionRequestedAt: now } : {}), ...(action === 'confirm_completion' ? { customerConfirmedCompletionAt: now, completedAt: now } : {}), updatedAt: now } : item);
     await saveDemands(next); setDemands(next);
   }
 
@@ -128,10 +111,7 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     const providerCanOffer = user.id === conversation.providerId && ['open', 'negotiating'].includes(demand.status);
     return <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}><TouchableOpacity style={styles.iconButton} onPress={onBack}><Text style={styles.iconText}>‹</Text></TouchableOpacity><View style={styles.headerText}><Text style={styles.title}>{providerCanOffer ? 'Enviar proposta' : 'Aguardando proposta'}</Text><Text style={styles.subtitle}>{demand.title}</Text></View></View>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.demandCard}><Text style={styles.category}>{demand.category}</Text><Text style={styles.demandTitle}>{demand.title}</Text><Text style={styles.description}>{demand.description}</Text><Text style={styles.location}>📍 {demand.locationLabel}</Text>{demand.budget ? <Text style={styles.budget}>Cliente informa: {money(demand.budget)}</Text> : <Text style={styles.budget}>Cliente deixou o valor em aberto</Text>}</View>
-        {providerCanOffer ? <View style={styles.offerCard}><Text style={styles.offerTitle}>Sua primeira proposta</Text><Text style={styles.help}>Informe quanto você cobra e, se quiser, deixe uma mensagem para o cliente.</Text><TextInput value={firstAmount} onChangeText={setFirstAmount} keyboardType="decimal-pad" placeholder="Ex.: 350,00" style={styles.input} /><TextInput value={firstMessage} onChangeText={setFirstMessage} placeholder="Mensagem ao cliente (opcional)" multiline style={[styles.input, styles.multiline]} /><TouchableOpacity style={styles.primary} onPress={() => sendFirstProposal().catch(() => undefined)} disabled={sendingFirst}><Text style={styles.primaryText}>{sendingFirst ? 'Enviando...' : 'Enviar primeira proposta'}</Text></TouchableOpacity></View> : <View style={styles.waitCard}><Text style={styles.waitTitle}>⏳ Aguardando o prestador</Text><Text style={styles.help}>Assim que uma proposta for enviada, a negociação aparecerá aqui.</Text></View>}
-      </ScrollView>
+      <ScrollView contentContainerStyle={styles.content}><View style={styles.demandCard}><Text style={styles.category}>{demand.category}</Text><Text style={styles.demandTitle}>{demand.title}</Text><Text style={styles.description}>{demand.description}</Text><Text style={styles.location}>📍 {demand.locationLabel}</Text>{demand.budget ? <Text style={styles.budget}>Cliente informa: {money(demand.budget)}</Text> : <Text style={styles.budget}>Cliente deixou o valor em aberto</Text>}</View>{providerCanOffer ? <View style={styles.offerCard}><Text style={styles.offerTitle}>Sua primeira proposta</Text><Text style={styles.help}>Informe quanto você cobra e, se quiser, deixe uma mensagem para o cliente.</Text><TextInput value={firstAmount} onChangeText={setFirstAmount} keyboardType="decimal-pad" placeholder="Ex.: 350,00" style={styles.input} /><TextInput value={firstMessage} onChangeText={setFirstMessage} placeholder="Mensagem ao cliente (opcional)" multiline style={[styles.input, styles.multiline]} /><TouchableOpacity style={styles.primary} onPress={() => sendFirstProposal().catch(() => undefined)} disabled={sendingFirst}><Text style={styles.primaryText}>{sendingFirst ? 'Enviando...' : 'Enviar primeira proposta'}</Text></TouchableOpacity></View> : <View style={styles.waitCard}><Text style={styles.waitTitle}>⏳ Aguardando o prestador</Text><Text style={styles.help}>Assim que uma proposta for enviada, a negociação aparecerá aqui.</Text></View>}</ScrollView>
     </KeyboardAvoidingView>;
   }
 
