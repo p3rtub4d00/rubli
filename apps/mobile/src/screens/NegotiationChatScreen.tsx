@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
 import { getDemands, getProposals, getRatings, getUsers, saveDemands, saveProposals } from '../storage/localStore';
+import { subscribeRealtime } from '../api/realtime';
 import { ChatScreen } from './ChatScreen';
 
 interface Props { user: User; conversation: Conversation; onBack: () => void; }
@@ -31,8 +32,11 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     let active = true;
     const run = async () => { try { await reload(); } catch { if (active) Alert.alert('Erro', 'Não foi possível carregar a negociação.'); } };
     run();
-    const interval = setInterval(() => { reload().catch(() => undefined); }, 2500);
-    return () => { active = false; clearInterval(interval); };
+    const interval = setInterval(() => { reload().catch(() => undefined); }, 5000);
+    const unsubscribe = subscribeRealtime((event) => {
+      if (!event.demandId || event.demandId === conversation.demandId || event.proposalId) reload().catch(() => undefined);
+    });
+    return () => { active = false; clearInterval(interval); unsubscribe(); };
   }, [conversation.id, conversation.demandId, conversation.providerId]);
 
   const demand = demands.find((item) => item.id === conversation.demandId) ?? null;
@@ -62,19 +66,23 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     const recipientId = offerSide === 'provider' ? effectiveConversation.customerId : effectiveConversation.providerId;
     if (user.id !== recipientId) throw new Error('Somente quem recebeu a oferta pode aceitá-la.');
     const now = new Date().toISOString();
-    const nextProposals = proposals.map((item) => item.demandId === effectiveConversation.demandId ? item.id === proposal.id ? { ...item, status: 'accepted' as const, customerConfirmedAt: now, providerConfirmedAt: now } : item.status === 'pending' ? { ...item, status: 'rejected' as const } : item : item);
-    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? { ...item, status: 'accepted' as const, acceptedProviderId: proposal.providerId, updatedAt: now } : item);
+    const nextProposals = proposals.map((item) => item.id === proposal.id
+      ? { ...item, customerConfirmedAt: user.id === effectiveConversation.customerId ? (item.customerConfirmedAt ?? now) : item.customerConfirmedAt, providerConfirmedAt: user.id === effectiveConversation.providerId ? (item.providerConfirmedAt ?? now) : item.providerConfirmedAt }
+      : item);
+    const updated = nextProposals.find((item) => item.id === proposal.id)!;
+    const bothConfirmed = Boolean(updated.customerConfirmedAt && updated.providerConfirmedAt);
+    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? { ...item, status: bothConfirmed ? 'accepted' as const : 'negotiating' as const, acceptedProviderId: bothConfirmed ? proposal.providerId : item.acceptedProviderId, updatedAt: now } : item);
     await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands);
   }
 
   async function confirmAgreement(proposal: Proposal) {
-    if (proposal.status !== 'accepted') throw new Error('A oferta ainda não foi aceita.');
+    if (proposal.status !== 'pending' && proposal.status !== 'accepted') throw new Error('A oferta ainda não pode ser confirmada.');
     if (user.id !== effectiveConversation.customerId && user.id !== effectiveConversation.providerId) throw new Error('Usuário não participa desta negociação.');
     const now = new Date().toISOString();
     const nextProposals = proposals.map((item) => item.id !== proposal.id ? item : user.id === effectiveConversation.customerId ? { ...item, customerConfirmedAt: item.customerConfirmedAt ?? now } : { ...item, providerConfirmedAt: item.providerConfirmedAt ?? now });
-    const updatedProposal = nextProposals.find((item) => item.id === proposal.id);
-    const bothConfirmed = Boolean(updatedProposal?.customerConfirmedAt && updatedProposal?.providerConfirmedAt);
-    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId && bothConfirmed ? { ...item, status: 'accepted' as const, acceptedProviderId: proposal.providerId, updatedAt: now } : item);
+    const updatedProposal = nextProposals.find((item) => item.id === proposal.id)!;
+    const bothConfirmed = Boolean(updatedProposal.customerConfirmedAt && updatedProposal.providerConfirmedAt);
+    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? { ...item, status: bothConfirmed ? 'accepted' as const : 'negotiating' as const, acceptedProviderId: bothConfirmed ? proposal.providerId : item.acceptedProviderId, updatedAt: now } : item);
     await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands);
   }
 
@@ -95,8 +103,12 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
 
   async function updateServiceStage(nextDemand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
     const now = new Date().toISOString(); const isProvider = user.id === nextDemand.acceptedProviderId; const isCustomer = user.id === effectiveConversation.customerId;
+    if (!isProvider && !isCustomer) throw new Error('Usuário não participa deste serviço.');
+    const acceptedProposal = proposals.find((item) => item.demandId === nextDemand.id && item.providerId === nextDemand.acceptedProviderId && item.status === 'accepted');
+    const bothConfirmed = Boolean(acceptedProposal?.customerConfirmedAt && acceptedProposal?.providerConfirmedAt);
+    if (!bothConfirmed) throw new Error('O serviço só pode iniciar após a confirmação dos dois lados.');
     let status: Demand['status'] = nextDemand.status;
-    if (action === 'en_route') { if (!isProvider || nextDemand.status !== 'accepted') throw new Error('Somente o prestador contratado pode informar o deslocamento.'); status = 'provider_en_route'; }
+    if (action === 'en_route') { if (!isProvider || nextDemand.status !== 'accepted') throw new Error('Somente o prestador contratado pode informar que está a caminho.'); status = 'provider_en_route'; }
     if (action === 'arrived') { if (!isProvider || nextDemand.status !== 'provider_en_route') throw new Error('O prestador deve estar a caminho para registrar a chegada.'); status = 'provider_arrived'; }
     if (action === 'start') { if (!isProvider || nextDemand.status !== 'provider_arrived') throw new Error('Registre a chegada antes de iniciar o serviço.'); status = 'in_progress'; }
     if (action === 'request_confirmation') { if (!isProvider || nextDemand.status !== 'in_progress') throw new Error('Somente o prestador pode solicitar a confirmação da conclusão.'); status = 'awaiting_customer_confirmation'; }
