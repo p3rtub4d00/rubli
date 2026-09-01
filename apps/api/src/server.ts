@@ -9,6 +9,7 @@ import { registerDemandRoutes } from './routes/demands.js';
 import { registerProposalRoutes } from './routes/proposals.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { registerNearbyRoutes } from './routes/nearby.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
 import { attachRealtimeClient } from './realtime.js';
 
 const app = Fastify({ logger: true });
@@ -21,6 +22,7 @@ await registerDemandRoutes(app);
 await registerProposalRoutes(app);
 await registerChatRoutes(app);
 await registerNearbyRoutes(app);
+await registerNotificationRoutes(app);
 
 app.get('/api/v1/realtime', { websocket: true }, (socket) => {
   attachRealtimeClient(socket);
@@ -43,6 +45,7 @@ app.get('/health', async () => ({
   version: '0.1.0',
   persistence: mongoClient ? 'mongodb' : 'memory',
   realtime: true,
+  push: true,
 }));
 
 app.get('/api/v1', async () => ({
@@ -50,6 +53,7 @@ app.get('/api/v1', async () => ({
   message: 'Quem precisa, encontra quem resolve.',
   mode: mongoClient ? 'online' : 'development-offline',
   realtime: true,
+  push: true,
 }));
 
 const port = Number(process.env.PORT ?? 3000);
