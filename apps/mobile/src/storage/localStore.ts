@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
-import { apiCreateDemand, apiListDemands } from '../api/client';
+import { apiCreateDemand, apiListDemands, apiListProposals, apiSyncProposals } from '../api/client';
 
 const KEYS = {
   user: '@rubli/user',
@@ -66,10 +66,9 @@ export async function saveDemands(demands: Demand[]) {
   await writeJson(KEYS.demands, active);
 
   try {
-    // Persistencia compartilhada: o armazenamento local continua como cache/fallback.
     await Promise.all(active.map((demand) => apiCreateDemand(demand)));
   } catch {
-    // Offline-first: falha de rede não impede o uso local.
+    // Offline fallback: keep local cache.
   }
 }
 
@@ -95,8 +94,28 @@ export async function getDemands(): Promise<Demand[]> {
   return localDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
 }
 
-export async function saveProposals(proposals: Proposal[]) { await writeJson(KEYS.proposals, proposals); }
-export async function getProposals(): Promise<Proposal[]> { return readJson<Proposal[]>(KEYS.proposals, []); }
+export async function saveProposals(proposals: Proposal[]) {
+  await writeJson(KEYS.proposals, proposals);
+  try {
+    await apiSyncProposals(proposals);
+  } catch {
+    // Offline fallback: keep local cache.
+  }
+}
+
+export async function getProposals(): Promise<Proposal[]> {
+  const localProposals = await readJson<Proposal[]>(KEYS.proposals, []);
+  try {
+    const remoteProposals = await apiListProposals();
+    if (remoteProposals.length > 0 || localProposals.length === 0) {
+      await writeJson(KEYS.proposals, remoteProposals);
+      return remoteProposals;
+    }
+  } catch {
+    // Sem API disponível, segue usando o cache local.
+  }
+  return localProposals;
+}
 
 export async function saveConversations(conversations: Conversation[]) { await writeJson(KEYS.conversations, conversations); }
 export async function getConversations(): Promise<Conversation[]> { return readJson<Conversation[]>(KEYS.conversations, []); }
