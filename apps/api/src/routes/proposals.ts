@@ -7,11 +7,21 @@ import { broadcastRealtime } from '../realtime.js';
 const proposalsCollection = 'proposals';
 const demandsCollection = 'demands';
 
+function normalizeProposal(proposal: Proposal): Proposal {
+  if (proposal.status === 'superseded' || proposal.status === 'rejected' || proposal.status === 'withdrawn') return proposal;
+  const bothConfirmed = Boolean(proposal.customerConfirmedAt && proposal.providerConfirmedAt);
+  return bothConfirmed ? { ...proposal, status: 'accepted' } : { ...proposal, status: 'pending' };
+}
+
 async function listProposals(demandId?: string) {
   const db = await getDatabase();
-  if (!db) return demandId ? memoryStore.proposals.filter((item) => item.demandId === demandId) : [...memoryStore.proposals];
+  if (!db) {
+    const items = demandId ? memoryStore.proposals.filter((item) => item.demandId === demandId) : [...memoryStore.proposals];
+    return items.map(normalizeProposal);
+  }
   const filter = demandId ? { demandId } : {};
-  return db.collection<Proposal>(proposalsCollection).find(filter).sort({ createdAt: -1 }).toArray();
+  const items = await db.collection<Proposal>(proposalsCollection).find(filter).sort({ createdAt: -1 }).toArray();
+  return items.map(normalizeProposal);
 }
 
 async function findDemand(demandId: string) {
@@ -40,12 +50,6 @@ async function persistDemand(demand: Demand) {
     return;
   }
   await db.collection<Demand>(demandsCollection).replaceOne({ id: demand.id }, demand, { upsert: true });
-}
-
-function normalizeProposal(proposal: Proposal): Proposal {
-  if (proposal.status === 'superseded' || proposal.status === 'rejected' || proposal.status === 'withdrawn') return proposal;
-  const bothConfirmed = Boolean(proposal.customerConfirmedAt && proposal.providerConfirmedAt);
-  return bothConfirmed ? { ...proposal, status: 'accepted' } : { ...proposal, status: 'pending' };
 }
 
 export async function registerProposalRoutes(app: FastifyInstance) {
