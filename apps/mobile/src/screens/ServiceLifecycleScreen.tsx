@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { Demand, Proposal, Rating, User } from '@rubli/shared';
 import { getDemands, getProposals, saveDemands } from '../storage/localStore';
+import { subscribeRealtime } from '../api/realtime';
 import { archiveCompletedDemand, getRatings, saveRating } from '../profile/profileStore';
 import { PublicProfileScreen } from './PublicProfileScreen';
 
@@ -9,7 +10,6 @@ const BRAND = '#081B33';
 const ACCENT = '#F28C28';
 interface Props { user: User; profiles: User[]; visible: boolean; onClose: () => void; onChanged: () => void; }
 function newId() { return `rat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
-function money(value: number) { return `R$ ${value.toFixed(2).replace('.', ',')}`; }
 function acceptedProviderId(demand: Demand, proposals: Proposal[]) { return demand.acceptedProviderId ?? proposals.find((item) => item.demandId === demand.id && item.status === 'accepted')?.providerId; }
 const FLOW: Demand['status'][] = ['accepted', 'provider_en_route', 'provider_arrived', 'in_progress', 'awaiting_customer_confirmation', 'completed'];
 
@@ -27,14 +27,13 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
     const [allDemands, allProposals, allRatings] = await Promise.all([getDemands(), getProposals(), getRatings()]);
     setDemands(allDemands); setProposals(allProposals); setRatings(allRatings);
   }
-
   useEffect(() => {
     if (!visible) return;
-    let active = true;
     reload().catch(() => undefined);
-    const interval = setInterval(() => { if (active) reload().catch(() => undefined); }, 2500);
-    return () => { active = false; clearInterval(interval); };
-  }, [visible, user.id]);
+    const interval = setInterval(() => reload().catch(() => undefined), 5000);
+    const unsubscribe = subscribeRealtime((event) => { if (!event.demandId || demands.some((demand) => demand.id === event.demandId)) reload().catch(() => undefined); });
+    return () => { clearInterval(interval); unsubscribe(); };
+  }, [visible, user.id, demands.map((item) => item.id).join('|')]);
 
   const mine = demands.filter((demand) => {
     const providerId = acceptedProviderId(demand, proposals);
@@ -64,6 +63,8 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
     const providerId = acceptedProviderId(demand, proposals);
     const isProvider = user.id === providerId;
     const isCustomer = user.id === demand.requesterId;
+    const agreement = proposals.find((item) => item.demandId === demand.id && item.providerId === providerId && item.status === 'accepted');
+    if (!agreement?.customerConfirmedAt || !agreement.providerConfirmedAt) return Alert.alert('Acordo pendente', 'O serviço só pode avançar depois que cliente e prestador confirmarem o acordo.');
     const now = new Date().toISOString();
     let status: Demand['status'] | null = null;
     let patch: Partial<Demand> = {};
@@ -89,8 +90,7 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
     const providerId = acceptedProviderId(rateDemand, proposals);
     const participantRatings = nextRatings.filter((item) => item.demandId === rating.demandId);
     if (participantRatings.some((item) => item.fromUserId === rateDemand.requesterId) && participantRatings.some((item) => item.fromUserId === providerId)) {
-      await archiveCompletedDemand(rateDemand); await reload(); onChanged();
-      Alert.alert('Chamado encerrado', 'As duas avaliações foram registradas e o chamado foi movido para o histórico.');
+      await archiveCompletedDemand(rateDemand); await reload(); onChanged(); Alert.alert('Chamado encerrado', 'As duas avaliações foram registradas e o chamado foi movido para o histórico.');
     } else { await reload(); Alert.alert('Avaliação enviada', 'A outra parte ainda precisa avaliar.'); }
   }
 
@@ -104,12 +104,15 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
           const myRating = other && ratings.find((item) => item.demandId === demand.id && item.fromUserId === user.id && item.toUserId === other.id);
           const isProvider = user.id === providerId;
           const isCustomer = user.id === demand.requesterId;
-          const action = demand.status === 'accepted' ? '🚗 Estou a caminho' : demand.status === 'provider_en_route' ? '📍 Cheguei ao local' : demand.status === 'provider_arrived' ? '▶ Iniciar serviço' : demand.status === 'in_progress' ? '✓ Solicitar confirmação do cliente' : demand.status === 'awaiting_customer_confirmation' ? '✓ Confirmar conclusão do serviço' : null;
+          const agreement = proposals.find((item) => item.demandId === demand.id && item.providerId === providerId && item.status === 'accepted');
+          const agreementConfirmed = Boolean(agreement?.customerConfirmedAt && agreement?.providerConfirmedAt);
+          const action = !agreementConfirmed ? null : demand.status === 'accepted' ? '🚗 Estou a caminho' : demand.status === 'provider_en_route' ? '📍 Cheguei ao local' : demand.status === 'provider_arrived' ? '▶ Iniciar serviço' : demand.status === 'in_progress' ? '✓ Solicitar confirmação do cliente' : demand.status === 'awaiting_customer_confirmation' ? '✓ Confirmar conclusão do serviço' : null;
           return <View key={demand.id} style={styles.card}>
             <Text style={styles.category}>{demand.category}</Text><Text style={styles.cardTitle}>{demand.title}</Text><Text style={styles.meta}>{statusLabel(demand.status)}</Text>
             {other && <TouchableOpacity onPress={() => setProfileTarget(other)}><Text style={styles.profileLink}>Ver perfil de {other.name}</Text></TouchableOpacity>}
-            <View style={styles.timeline}>{FLOW.map((step, index) => <View key={step} style={styles.stepRow}><Text style={[styles.stepDot, FLOW.indexOf(demand.status) >= index ? styles.stepDone : styles.stepPending]}>{index + 1}</Text><Text style={[styles.stepText, FLOW.indexOf(demand.status) >= index && styles.stepTextDone]}>{statusLabel(step)}</Text></View>)}</View>
+            <View style={styles.timeline}>{FLOW.map((step, index) => <View key={step} style={styles.stepRow}><Text style={[styles.stepDot, agreementConfirmed && FLOW.indexOf(demand.status) >= index ? styles.stepDone : styles.stepPending]}>{index + 1}</Text><Text style={[styles.stepText, agreementConfirmed && FLOW.indexOf(demand.status) >= index && styles.stepTextDone]}>{statusLabel(step)}</Text></View>)}</View>
             {action && ((isProvider && demand.status !== 'awaiting_customer_confirmation') || (isCustomer && demand.status === 'awaiting_customer_confirmation')) ? <TouchableOpacity style={styles.primary} onPress={() => advanceService(demand).catch(() => Alert.alert('Erro', 'Não foi possível atualizar o serviço.'))}><Text style={styles.primaryText}>{action}</Text></TouchableOpacity> : demand.status === 'awaiting_customer_confirmation' && isProvider ? <Text style={styles.waiting}>⏳ Aguardando o cliente confirmar a conclusão.</Text> : null}
+            {!agreementConfirmed && demand.status === 'accepted' && <Text style={styles.waiting}>⏳ Aguardando a confirmação dos dois lados do acordo.</Text>}
             {demand.status === 'completed' && other && !myRating && <TouchableOpacity style={styles.primary} onPress={() => { setRateDemand(demand); setRateTarget(other); }}><Text style={styles.primaryText}>Avaliar {other.role === 'provider' ? 'prestador' : 'cliente'}</Text></TouchableOpacity>}
             {demand.status === 'completed' && myRating && <Text style={styles.done}>✓ Sua avaliação foi registrada</Text>}
           </View>;
