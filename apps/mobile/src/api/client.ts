@@ -1,4 +1,4 @@
-import type { Demand } from '@rubli/shared';
+import type { Demand, Proposal } from '@rubli/shared';
 
 const API_PORT = 3000;
 const LAN_API_URL = 'http://192.168.100.85:3000';
@@ -43,5 +43,16 @@ export async function apiCreateDemand(demand: Demand) {
   return request<Demand>('/api/v1/demands', {
     method: 'POST',
     body: JSON.stringify(demand),
+  });
+}
+
+export async function apiListProposals(demandId?: string) {
+  return request<Proposal[]>(`/api/v1/proposals${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`);
+}
+
+export async function apiSyncProposals(proposals: Proposal[]) {
+  return request<{ ok: boolean; count: number }>('/api/v1/proposals/sync', {
+    method: 'POST',
+    body: JSON.stringify({ proposals }),
   });
 }
