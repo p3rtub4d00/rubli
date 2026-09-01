@@ -3,6 +3,7 @@ import type { CreateProposalInput, Demand, Proposal } from '@rubli/shared';
 import { memoryStore } from '../store/memoryStore.js';
 import { getDatabase } from '../store/database.js';
 import { broadcastRealtime } from '../realtime.js';
+import { sendPushToUsers } from '../push.js';
 
 const proposalsCollection = 'proposals';
 const demandsCollection = 'demands';
@@ -69,6 +70,7 @@ export async function registerProposalRoutes(app: FastifyInstance) {
     await persistDemand(updatedDemand);
     broadcastRealtime({ type: 'proposal.created', demandId: proposal.demandId, proposalId: proposal.id, actorUserId: proposal.providerId, at: proposal.createdAt });
     broadcastRealtime({ type: 'demand.updated', demandId: updatedDemand.id, actorUserId: proposal.providerId, at: proposal.createdAt });
+    await sendPushToUsers([demand.requesterId], { title: '💰 Nova proposta recebida', body: `${proposal.amount.toFixed(2).replace('.', ',')} para ${demand.title}`, data: { type: 'proposal.created', demandId: proposal.demandId, proposalId: proposal.id } });
     return reply.code(201).send(proposal);
   });
 
@@ -80,12 +82,11 @@ export async function registerProposalRoutes(app: FastifyInstance) {
       const demand = await findDemand(normalized.demandId);
       if (!demand) continue;
       const bothConfirmed = Boolean(normalized.customerConfirmedAt && normalized.providerConfirmedAt);
-      const nextDemand: Demand = bothConfirmed
-        ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: new Date().toISOString() }
-        : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: new Date().toISOString() };
+      const nextDemand: Demand = bothConfirmed ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: new Date().toISOString() } : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: new Date().toISOString() };
       await persistDemand(nextDemand);
-      broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId: normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId, at: nextDemand.updatedAt });
-      broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId: normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId, at: nextDemand.updatedAt });
+      const actorUserId = normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId;
+      broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId, at: nextDemand.updatedAt });
+      broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId, at: nextDemand.updatedAt });
     }
     return reply.send({ ok: true, count: proposals.length });
   });
@@ -103,23 +104,29 @@ export async function registerProposalRoutes(app: FastifyInstance) {
 
 async function confirmProposal(id: string, userId: string | undefined, reply: any) {
   if (!userId) return reply.code(400).send({ error: 'USER_REQUIRED', message: 'Informe o usuário que está confirmando.' });
-  const proposals = await listProposals();
-  const proposal = proposals.find((item) => item.id === id);
+  const proposal = (await listProposals()).find((item) => item.id === id);
   if (!proposal) return reply.code(404).send({ error: 'PROPOSAL_NOT_FOUND', message: 'Proposta não encontrada.' });
   const demand = await findDemand(proposal.demandId);
   if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });
   if (userId !== demand.requesterId && userId !== proposal.providerId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta negociação.' });
   if (!['pending', 'accepted'].includes(proposal.status)) return reply.code(409).send({ error: 'PROPOSAL_UNAVAILABLE', message: 'Esta proposta não está disponível para confirmação.' });
+
   const now = new Date().toISOString();
-  const nextProposal: Proposal = userId === demand.requesterId ? { ...proposal, customerConfirmedAt: proposal.customerConfirmedAt ?? now } : { ...proposal, providerConfirmedAt: proposal.providerConfirmedAt ?? now };
+  const nextProposal: Proposal = userId === demand.requesterId ? { ...proposal, status: 'accepted', customerConfirmedAt: proposal.customerConfirmedAt ?? now } : { ...proposal, status: 'accepted', providerConfirmedAt: proposal.providerConfirmedAt ?? now };
   const normalized = normalizeProposal(nextProposal);
   const bothConfirmed = Boolean(normalized.customerConfirmedAt && normalized.providerConfirmedAt);
-  const nextDemand: Demand = bothConfirmed
-    ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: now }
-    : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: now };
+  const nextDemand: Demand = bothConfirmed ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: now } : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: now };
   await persistProposal(normalized);
   await persistDemand(nextDemand);
   broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId: userId, at: now });
   broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId: userId, at: now });
+
+  const recipientId = userId === demand.requesterId ? proposal.providerId : demand.requesterId;
+  await sendPushToUsers([recipientId], {
+    title: bothConfirmed ? '✅ Serviço confirmado' : '🔔 Confirmação recebida',
+    body: bothConfirmed ? `O serviço “${demand.title}” foi confirmado pelos dois lados.` : `A outra parte confirmou a proposta de ${normalized.amount.toFixed(2).replace('.', ',')}.`,
+    data: { type: bothConfirmed ? 'agreement.confirmed' : 'proposal.confirmed', demandId: demand.id, proposalId: normalized.id },
+  });
+
   return reply.send({ proposal: normalized, demand: nextDemand });
 }
