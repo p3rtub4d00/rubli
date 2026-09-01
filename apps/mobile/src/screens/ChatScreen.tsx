@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { ChatMessage, Conversation, Proposal, Demand, ServiceRating, User } from '@rubli/shared';
 import { getDemands, getMessages, getProposals, saveMessages } from '../storage/localStore';
+import { subscribeRealtime } from '../api/realtime';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
@@ -23,7 +24,7 @@ interface ChatScreenProps {
 function newMessageId() { return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
 function money(value: number) { return `R$ ${value.toFixed(2).replace('.', ',')}`; }
 
-export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', providerProfile = null, providerRatings = [], onBack, onAcceptProposal, onConfirmAgreement, onCounterProposal, onServiceAction }: ChatScreenProps) {
+export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', providerProfile = null, providerRatings = [], isCustomer = false, onBack, onAcceptProposal, onConfirmAgreement, onCounterProposal, onServiceAction }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -38,15 +39,10 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   async function reload() {
     const [messageItems, proposalItems, demandItems] = await Promise.all([getMessages(), getProposals(), getDemands()]);
     const demandItem = demandItems.find((item) => item.id === conversation.demandId) ?? null;
-    const demandProposals = proposalItems
-      .filter((item) => item.demandId === conversation.demandId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const demandProposals = proposalItems.filter((item) => item.demandId === conversation.demandId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const preferredProviderId = demandItem?.acceptedProviderId ?? conversation.providerId;
     const providerScoped = demandProposals.filter((item) => item.providerId === preferredProviderId);
-    const matching = providerScoped.length > 0
-      ? providerScoped
-      : demandProposals;
-
+    const matching = providerScoped.length > 0 ? providerScoped : demandProposals;
     setMessages(messageItems.filter((item) => item.conversationId === conversation.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
     setProposalHistory(matching);
     setProposal(matching[matching.length - 1] ?? null);
@@ -54,18 +50,26 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   }
 
   useEffect(() => { reload().catch(() => Alert.alert('Erro', 'Não foi possível carregar a conversa.')); }, [conversation.id, conversation.demandId, conversation.providerId]);
+  useEffect(() => subscribeRealtime((event) => {
+    if (!event.demandId || event.demandId === conversation.demandId || event.conversationId === conversation.id || event.proposalId === proposal?.id) {
+      reload().catch(() => undefined);
+    }
+  }), [conversation.id, conversation.demandId, proposal?.id]);
 
   const currentConversationMessages = useMemo(() => messages.filter((item) => item.conversationId === conversation.id), [messages, conversation.id]);
-  const isCustomer = currentUserId === conversation.customerId;
   const offerSide = proposal?.offeredBy ?? 'provider';
-  const isOfferAuthor = Boolean(proposal && ((offerSide === 'customer' && isCustomer) || (offerSide === 'provider' && !isCustomer)));
-  const canRespondToOffer = Boolean(proposal && proposal.status === 'pending' && !isOfferAuthor);
-  const customerConfirmed = Boolean(proposal?.customerConfirmedAt) || demand?.status === 'accepted' || demand?.status === 'provider_en_route' || demand?.status === 'provider_arrived' || demand?.status === 'in_progress' || demand?.status === 'awaiting_customer_confirmation' || demand?.status === 'completed';
-  const providerConfirmed = Boolean(proposal?.providerConfirmedAt) || demand?.status === 'accepted' || demand?.status === 'provider_en_route' || demand?.status === 'provider_arrived' || demand?.status === 'in_progress' || demand?.status === 'awaiting_customer_confirmation' || demand?.status === 'completed';
+  const offerAuthorId = offerSide === 'customer' ? conversation.customerId : conversation.providerId;
+  const recipientId = offerSide === 'customer' ? conversation.providerId : conversation.customerId;
+  const isOfferAuthor = Boolean(proposal && currentUserId === offerAuthorId);
+  const canRespondToOffer = Boolean(proposal && proposal.status === 'pending' && currentUserId === recipientId);
+  const customerConfirmed = Boolean(proposal?.customerConfirmedAt);
+  const providerConfirmed = Boolean(proposal?.providerConfirmedAt);
   const bothConfirmed = customerConfirmed && providerConfirmed;
-  const canCounter = Boolean(canRespondToOffer && onCounterProposal);
+  const agreementInProgress = proposal?.status === 'accepted' || Boolean(demand && ['accepted', 'provider_en_route', 'provider_arrived', 'in_progress', 'awaiting_customer_confirmation', 'completed'].includes(demand.status));
+  const agreementClosed = bothConfirmed || agreementInProgress;
+  const canCounter = Boolean(canRespondToOffer && onCounterProposal && !agreementClosed);
   const pendingStatus = isOfferAuthor ? 'AGUARDANDO RESPOSTA' : 'SUA RESPOSTA';
-  const fallbackAcceptedLabel = demand?.status === 'accepted' || demand?.status === 'provider_en_route' || demand?.status === 'provider_arrived' || demand?.status === 'in_progress' || demand?.status === 'awaiting_customer_confirmation' || demand?.status === 'completed';
+  const fallbackAcceptedLabel = Boolean(demand && ['accepted', 'provider_en_route', 'provider_arrived', 'in_progress', 'awaiting_customer_confirmation', 'completed'].includes(demand.status));
 
   async function sendMessage() {
     const normalized = text.trim(); if (!normalized) return;
@@ -74,17 +78,18 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   }
 
   async function accept() {
-    if (!proposal || working || !canRespondToOffer || !onAcceptProposal) return;
+    if (!proposal || working || !canRespondToOffer || !onAcceptProposal || agreementClosed) return;
     setWorking(true); try { await onAcceptProposal(proposal); await reload(); } catch { Alert.alert('Erro', 'Não foi possível aceitar a oferta.'); } finally { setWorking(false); }
   }
 
   async function confirmAgreement() {
-    if (!proposal || working || proposal.status !== 'accepted' || bothConfirmed || !onConfirmAgreement) return;
+    if (!proposal || working || agreementClosed || !onConfirmAgreement) return;
+    if (proposal.status !== 'pending' && proposal.status !== 'accepted') return;
     setWorking(true); try { await onConfirmAgreement(proposal); await reload(); } catch { Alert.alert('Erro', 'Não foi possível confirmar o acordo.'); } finally { setWorking(false); }
   }
 
   async function sendCounter() {
-    if (!proposal || !onCounterProposal || !canRespondToOffer) return;
+    if (!proposal || !onCounterProposal || !canRespondToOffer || agreementClosed) return;
     const amount = Number(counterAmount.replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) return Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
     if (Math.abs(amount - proposal.amount) < 0.01) return Alert.alert('Valor igual', 'Informe um valor diferente do valor atual.');
@@ -93,7 +98,7 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   }
 
   async function runServiceAction(action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
-    if (!demand || !bothConfirmed || working || !onServiceAction) return;
+    if (!demand || !bothConfirmed || agreementClosed && demand.status !== 'accepted' && demand.status !== 'provider_en_route' && demand.status !== 'provider_arrived' && demand.status !== 'in_progress' && demand.status !== 'awaiting_customer_confirmation' || working || !onServiceAction) return;
     setWorking(true); try { await onServiceAction(demand, action); await reload(); } catch { Alert.alert('Erro', 'Não foi possível atualizar a etapa do serviço.'); } finally { setWorking(false); }
   }
 
@@ -101,29 +106,23 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
     : demand.status === 'accepted' ? (isCustomer ? 'Aguardando o prestador informar que está a caminho.' : 'Serviço contratado. Informe quando estiver a caminho.')
     : demand.status === 'provider_en_route' ? (isCustomer ? '🚗 O prestador está a caminho.' : '🚗 Você informou que está a caminho.')
     : demand.status === 'provider_arrived' ? (isCustomer ? '📍 O prestador chegou ao local.' : '📍 Chegada registrada. Você já pode iniciar o serviço.')
-    : demand.status === 'in_progress' ? (isCustomer ? '🛠 Serviço em andamento.' : '🛠 Serviço em andamento. Conclua quando finalizar.')
+    : demand.status === 'in_progress' ? (isCustomer ? '🛠 Serviço em andamento.' : '🛠 Serviço em andamento. Solicite a confirmação quando terminar.')
     : demand.status === 'awaiting_customer_confirmation' ? (isCustomer ? '✓ O prestador informou que concluiu. Confira e confirme a conclusão.' : '⏳ Aguardando o cliente confirmar a conclusão.')
     : demand.status === 'completed' ? '✓ Serviço concluído e confirmado pelo cliente.' : null;
 
   return <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <View style={styles.header}>
-      <TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></TouchableOpacity>
-      <View style={styles.headerText}><Text style={styles.title}>{otherUserName}</Text><Text style={styles.subtitle}>{bothConfirmed ? (demand?.status === 'completed' ? 'Serviço concluído' : 'Serviço contratado') : 'Negociação pelo Rubli'}</Text></View>
-      {isCustomer && <TouchableOpacity style={styles.profileHeaderButton} onPress={() => setProfileOpen(true)}><Text style={styles.profileHeaderButtonText}>★ Perfil</Text></TouchableOpacity>}
-    </View>
+    <View style={styles.header}><TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></TouchableOpacity><View style={styles.headerText}><Text style={styles.title}>{otherUserName}</Text><Text style={styles.subtitle}>{agreementClosed ? (demand?.status === 'completed' ? 'Serviço concluído' : 'Serviço contratado') : 'Negociação pelo Rubli'}</Text></View>{isCustomer && <TouchableOpacity style={styles.profileHeaderButton} onPress={() => setProfileOpen(true)}><Text style={styles.profileHeaderButtonText}>★ Perfil</Text></TouchableOpacity>}</View>
     <ScrollView contentContainerStyle={styles.messages} keyboardShouldPersistTaps="handled">
       {proposal ? <View style={styles.proposalCard}>
-        <View style={styles.proposalTop}><Text style={styles.proposalLabel}>VALOR ATUAL</Text><Text style={styles.proposalStatus}>{bothConfirmed ? 'ACORDO CONFIRMADO' : proposal.status === 'accepted' ? 'OFERTA ACEITA' : proposal.status === 'superseded' ? 'SUBSTITUÍDA' : pendingStatus}</Text></View>
+        <View style={styles.proposalTop}><Text style={styles.proposalLabel}>VALOR ATUAL</Text><Text style={styles.proposalStatus}>{agreementClosed ? 'ACORDO CONFIRMADO' : proposal.status === 'accepted' ? 'OFERTA ACEITA' : proposal.status === 'superseded' ? 'SUBSTITUÍDA' : pendingStatus}</Text></View>
         <Text style={styles.proposalAmount}>{money(proposal.amount)}</Text>{proposal.message && <Text style={styles.proposalMessage}>“{proposal.message}”</Text>}
         <View style={styles.confirmationBox}><Text style={styles.confirmationText}>{customerConfirmed ? '✓ Cliente confirmado' : '○ Cliente ainda não confirmou'}</Text><Text style={styles.confirmationText}>{providerConfirmed ? '✓ Prestador confirmado' : '○ Prestador ainda não confirmou'}</Text></View>
-        {proposal.status === 'pending' && canRespondToOffer && <View style={styles.actionGrid}>{canCounter && <TouchableOpacity style={styles.secondaryAction} onPress={() => { setCounterAmount(String(proposal.amount).replace('.', ',')); setCounterMessage(''); setCounterOpen(true); }}><Text style={styles.secondaryActionText}>↔ Contraproposta</Text></TouchableOpacity>}{onAcceptProposal && <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={working}><Text style={styles.acceptButtonText}>{working ? 'Aceitando...' : `✓ Aceitar por ${money(proposal.amount)}`}</Text></TouchableOpacity>}</View>}
-        {proposal.status === 'pending' && isOfferAuthor && <Text style={styles.acceptedText}>⏳ Você enviou esta oferta. Aguardando resposta do outro lado.</Text>}
-        {proposal.status === 'accepted' && !bothConfirmed && onConfirmAgreement && <TouchableOpacity style={styles.providerConfirmButton} onPress={() => confirmAgreement().catch(() => undefined)} disabled={working}><Text style={styles.providerConfirmText}>{working ? 'Confirmando...' : '✓ Confirmar acordo e serviço'}</Text></TouchableOpacity>}
+        {proposal.status === 'pending' && canRespondToOffer && !agreementClosed && <View style={styles.actionGrid}>{canCounter && <TouchableOpacity style={styles.secondaryAction} onPress={() => { setCounterAmount(String(proposal.amount).replace('.', ',')); setCounterMessage(''); setCounterOpen(true); }}><Text style={styles.secondaryActionText}>↔ Contraproposta</Text></TouchableOpacity>}{onAcceptProposal && <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={working}><Text style={styles.acceptButtonText}>{working ? 'Aceitando...' : `✓ Aceitar por ${money(proposal.amount)}`}</Text></TouchableOpacity>}</View>}
+        {proposal.status === 'pending' && isOfferAuthor && !agreementClosed && <Text style={styles.acceptedText}>⏳ Você enviou esta oferta. Aguardando resposta do outro lado.</Text>}
+        {!agreementClosed && proposal.status === 'pending' && ((customerConfirmed && !isCustomer) || (providerConfirmed && isCustomer)) && onConfirmAgreement && <TouchableOpacity style={styles.providerConfirmButton} onPress={() => confirmAgreement().catch(() => undefined)} disabled={working}><Text style={styles.providerConfirmText}>{working ? 'Confirmando...' : '✓ Confirmar acordo e serviço'}</Text></TouchableOpacity>}
         {bothConfirmed && <Text style={styles.acceptedText}>✓ Os dois lados confirmaram. Serviço contratado.</Text>}
       </View> : fallbackAcceptedLabel ? <View style={styles.proposalCard}><View style={styles.proposalTop}><Text style={styles.proposalLabel}>ACORDO ATUAL</Text><Text style={styles.proposalStatus}>ACORDO CONFIRMADO</Text></View><Text style={styles.proposalAmount}>{demand?.budget ? money(demand.budget) : 'Valor acordado'}</Text><View style={styles.confirmationBox}><Text style={styles.confirmationText}>✓ Cliente confirmado</Text><Text style={styles.confirmationText}>✓ Prestador confirmado</Text></View><Text style={styles.acceptedText}>✓ Serviço contratado. A negociação permanece registrada no histórico.</Text></View> : null}
-
       {proposalHistory.length > 1 && <View style={styles.historyCard}><Text style={styles.historyTitle}>Histórico da negociação</Text>{proposalHistory.map((item, index) => <View key={item.id} style={styles.historyRow}><Text style={styles.historyVersion}>#{item.version ?? index + 1}</Text><View style={styles.historyText}><Text style={styles.historyAmount}>{money(item.amount)}</Text><Text style={styles.historyMeta}>{item.offeredBy === 'customer' ? 'Cliente' : 'Prestador'} · {item.status === 'superseded' ? 'substituída' : item.status === 'accepted' ? 'aceita' : 'pendente'}</Text>{item.message && <Text style={styles.historyMessage}>{item.message}</Text>}</View></View>)}</View>}
-
       {demand && <View style={styles.executionCard}><Text style={styles.executionTitle}>Acompanhamento do serviço</Text>
         <View style={styles.stepRow}><Text style={[styles.stepDot, bothConfirmed ? styles.stepDone : styles.stepPending]}>1</Text><Text style={styles.stepText}>Acordo confirmado</Text></View>
         <View style={styles.stepRow}><Text style={[styles.stepDot, ['provider_en_route','provider_arrived','in_progress','awaiting_customer_confirmation','completed'].includes(demand.status) ? styles.stepDone : styles.stepPending]}>2</Text><Text style={styles.stepText}>Prestador a caminho</Text></View>
@@ -138,7 +137,6 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
         {!isCustomer && demand.status === 'in_progress' && onServiceAction && <TouchableOpacity style={styles.completeButton} onPress={() => runServiceAction('request_confirmation').catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Enviando...' : '✓ Solicitar confirmação do cliente'}</Text></TouchableOpacity>}
         {isCustomer && demand.status === 'awaiting_customer_confirmation' && onServiceAction && <TouchableOpacity style={styles.completeButton} onPress={() => runServiceAction('confirm_completion').catch(() => undefined)} disabled={working}><Text style={styles.actionText}>{working ? 'Confirmando...' : '✓ Confirmar conclusão do serviço'}</Text></TouchableOpacity>}
       </View>}
-
       <View style={styles.notice}><Text style={styles.noticeTitle}>Negociação vinculada à demanda</Text><Text style={styles.noticeText}>Combine valor, horário e detalhes aqui. Cada contraproposta fica registrada no histórico.</Text></View>
       {currentConversationMessages.length === 0 ? <Text style={styles.empty}>Nenhuma mensagem ainda. Comece a conversa.</Text> : currentConversationMessages.map((message) => { const mine = message.senderId === currentUserId; return <View key={message.id} style={[styles.bubble, mine ? styles.mine : styles.theirs]}><Text style={mine ? styles.mineText : styles.theirsText}>{message.text}</Text><Text style={mine ? styles.mineTime : styles.theirsTime}>{new Date(message.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text></View>; })}
     </ScrollView>
