@@ -1,4 +1,4 @@
-import type { Demand, Proposal } from '@rubli/shared';
+import type { Conversation, Demand, Proposal, ChatMessage } from '@rubli/shared';
 
 const API_PORT = 3000;
 const LAN_API_URL = 'http://192.168.100.85:3000';
@@ -11,8 +11,6 @@ function resolveApiUrl() {
     return `http://${window.location.hostname}:${API_PORT}`;
   }
 
-  // Desenvolvimento na rede local: o celular usa o IP do PC.
-  // Para produção, defina EXPO_PUBLIC_RUBLI_API_URL com a URL do Render.
   return LAN_API_URL;
 }
 
@@ -28,31 +26,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.text().catch(() => '');
     throw new Error(body || `HTTP ${response.status}`);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
-export async function apiHealth() {
-  return request<{ ok: boolean; persistence: string }>('/health');
-}
-
-export async function apiListDemands() {
-  return request<Demand[]>('/api/v1/demands');
-}
-
-export async function apiCreateDemand(demand: Demand) {
-  return request<Demand>('/api/v1/demands', {
-    method: 'POST',
-    body: JSON.stringify(demand),
-  });
-}
-
-export async function apiListProposals(demandId?: string) {
-  return request<Proposal[]>(`/api/v1/proposals${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`);
-}
-
-export async function apiSyncProposals(proposals: Proposal[]) {
-  return request<{ ok: boolean; count: number }>('/api/v1/proposals/sync', {
-    method: 'POST',
-    body: JSON.stringify({ proposals }),
-  });
-}
+export async function apiHealth() { return request<{ ok: boolean; persistence: string; realtime?: boolean; push?: boolean }>('/health'); }
+export async function apiListDemands() { return request<Demand[]>('/api/v1/demands'); }
+export async function apiCreateDemand(demand: Demand) { return request<Demand>('/api/v1/demands', { method: 'POST', body: JSON.stringify(demand) }); }
+export async function apiListProposals(demandId?: string) { return request<Proposal[]>(`/api/v1/proposals${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`); }
+export async function apiSyncProposals(proposals: Proposal[]) { return request<{ ok: boolean; count: number }>('/api/v1/proposals/sync', { method: 'POST', body: JSON.stringify({ proposals }) }); }
+export async function apiCreateConversation(conversation: Omit<Conversation, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) { return request<Conversation>('/api/v1/conversations', { method: 'POST', body: JSON.stringify(conversation) }); }
+export async function apiListConversations(demandId?: string) { return request<Conversation[]>(`/api/v1/conversations${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`); }
+export async function apiListMessages(conversationId: string) { return request<ChatMessage[]>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`); }
+export async function apiCreateMessage(message: Omit<ChatMessage, 'id' | 'createdAt'>) { return request<ChatMessage>('/api/v1/messages', { method: 'POST', body: JSON.stringify(message) }); }
+export async function apiRegisterPushToken(input: { userId: string; role?: string; token: string }) { return request<void>('/api/v1/notifications/register-token', { method: 'POST', body: JSON.stringify(input) }); }
+export async function apiRemovePushToken(input: { userId: string; token: string }) { return request<void>('/api/v1/notifications/remove-token', { method: 'POST', body: JSON.stringify(input) }); }
