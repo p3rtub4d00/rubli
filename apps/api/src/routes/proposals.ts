@@ -80,7 +80,9 @@ export async function registerProposalRoutes(app: FastifyInstance) {
       const demand = await findDemand(normalized.demandId);
       if (!demand) continue;
       const bothConfirmed = Boolean(normalized.customerConfirmedAt && normalized.providerConfirmedAt);
-      const nextDemand: Demand = bothConfirmed ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: new Date().toISOString() } : { ...demand, status: demand.status === 'accepted' ? 'accepted' : 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: new Date().toISOString() };
+      const nextDemand: Demand = bothConfirmed
+        ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: new Date().toISOString() }
+        : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: new Date().toISOString() };
       await persistDemand(nextDemand);
       broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId: normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId, at: nextDemand.updatedAt });
       broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId: normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId, at: nextDemand.updatedAt });
@@ -112,7 +114,9 @@ async function confirmProposal(id: string, userId: string | undefined, reply: an
   const nextProposal: Proposal = userId === demand.requesterId ? { ...proposal, customerConfirmedAt: proposal.customerConfirmedAt ?? now } : { ...proposal, providerConfirmedAt: proposal.providerConfirmedAt ?? now };
   const normalized = normalizeProposal(nextProposal);
   const bothConfirmed = Boolean(normalized.customerConfirmedAt && normalized.providerConfirmedAt);
-  const nextDemand: Demand = bothConfirmed ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: now } : { ...demand, status: demand.status === 'accepted' ? 'accepted' : 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: now };
+  const nextDemand: Demand = bothConfirmed
+    ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: now }
+    : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: now };
   await persistProposal(normalized);
   await persistDemand(nextDemand);
   broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId: userId, at: now });
