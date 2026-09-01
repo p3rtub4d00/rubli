@@ -27,7 +27,14 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
     const [allDemands, allProposals, allRatings] = await Promise.all([getDemands(), getProposals(), getRatings()]);
     setDemands(allDemands); setProposals(allProposals); setRatings(allRatings);
   }
-  useEffect(() => { if (visible) reload().catch(() => undefined); }, [visible, user.id]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    reload().catch(() => undefined);
+    const interval = setInterval(() => { if (active) reload().catch(() => undefined); }, 2500);
+    return () => { active = false; clearInterval(interval); };
+  }, [visible, user.id]);
 
   const mine = demands.filter((demand) => {
     const providerId = acceptedProviderId(demand, proposals);
@@ -61,24 +68,12 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
     let status: Demand['status'] | null = null;
     let patch: Partial<Demand> = {};
 
-    if (demand.status === 'accepted') {
-      if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode informar que está a caminho.');
-      status = 'provider_en_route'; patch = { enRouteAt: now };
-    } else if (demand.status === 'provider_en_route') {
-      if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode registrar a chegada.');
-      status = 'provider_arrived'; patch = { arrivedAt: now };
-    } else if (demand.status === 'provider_arrived') {
-      if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode iniciar o serviço.');
-      status = 'in_progress'; patch = { startedAt: now };
-    } else if (demand.status === 'in_progress') {
-      if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode solicitar a confirmação da conclusão.');
-      status = 'awaiting_customer_confirmation'; patch = { completionRequestedAt: now };
-    } else if (demand.status === 'awaiting_customer_confirmation') {
-      if (!isCustomer) return Alert.alert('Ação do cliente', 'Somente o cliente que abriu o chamado pode confirmar a conclusão.');
-      status = 'completed'; patch = { customerConfirmedCompletionAt: now, completedAt: now };
-    } else {
-      return;
-    }
+    if (demand.status === 'accepted') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode informar que está a caminho.'); status = 'provider_en_route'; patch = { enRouteAt: now }; }
+    else if (demand.status === 'provider_en_route') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode registrar a chegada.'); status = 'provider_arrived'; patch = { arrivedAt: now }; }
+    else if (demand.status === 'provider_arrived') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode iniciar o serviço.'); status = 'in_progress'; patch = { startedAt: now }; }
+    else if (demand.status === 'in_progress') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode solicitar a confirmação da conclusão.'); status = 'awaiting_customer_confirmation'; patch = { completionRequestedAt: now }; }
+    else if (demand.status === 'awaiting_customer_confirmation') { if (!isCustomer) return Alert.alert('Ação do cliente', 'Somente o cliente que abriu o chamado pode confirmar a conclusão.'); status = 'completed'; patch = { customerConfirmedCompletionAt: now, completedAt: now }; }
+    else return;
 
     const next = demands.map((item) => item.id === demand.id ? { ...item, ...patch, status, acceptedProviderId: providerId, updatedAt: now } : item);
     await saveDemands(next); setDemands(next); onChanged();
