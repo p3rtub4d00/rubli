@@ -3,6 +3,7 @@ import type { Demand, DemandType } from '@rubli/shared';
 import { DEMAND_CATEGORIES } from '@rubli/shared';
 import { memoryStore } from '../store/memoryStore.js';
 import { getDatabase } from '../store/database.js';
+import { broadcastRealtime } from '../realtime.js';
 
 const demandTypes: DemandType[] = ['service', 'purchase', 'delivery', 'freight'];
 const collectionName = 'demands';
@@ -72,18 +73,28 @@ export async function registerDemandRoutes(app: FastifyInstance) {
     };
 
     const db = await getDatabase();
+    let merged: Demand;
+    let created = false;
     if (!db) {
       const existingIndex = memoryStore.demands.findIndex((item) => item.id === demand.id);
       const existing = existingIndex >= 0 ? memoryStore.demands[existingIndex] : undefined;
-      const merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
+      merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
       if (existingIndex >= 0) memoryStore.demands[existingIndex] = merged;
-      else memoryStore.demands.unshift(merged);
-      return reply.code(existingIndex >= 0 ? 200 : 201).send(merged);
+      else { memoryStore.demands.unshift(merged); created = true; }
+    } else {
+      const existing = await db.collection<Demand>(collectionName).findOne({ id: demand.id });
+      merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
+      created = !existing;
+      await db.collection<Demand>(collectionName).replaceOne({ id: demand.id }, merged, { upsert: true });
     }
 
-    const existing = await db.collection<Demand>(collectionName).findOne({ id: demand.id });
-    const merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
-    await db.collection<Demand>(collectionName).replaceOne({ id: demand.id }, merged, { upsert: true });
-    return reply.code(existing ? 200 : 201).send(merged);
+    broadcastRealtime({
+      type: created ? 'demand.created' : 'demand.updated',
+      demandId: merged.id,
+      actorUserId: merged.requesterId,
+      at: new Date().toISOString(),
+    });
+
+    return reply.code(created ? 201 : 200).send(merged);
   });
 }
