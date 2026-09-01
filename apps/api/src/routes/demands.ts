@@ -6,12 +6,28 @@ import { getDatabase } from '../store/database.js';
 
 const demandTypes: DemandType[] = ['service', 'purchase', 'delivery', 'freight'];
 const collectionName = 'demands';
+const statusRank: Record<Demand['status'], number> = {
+  draft: 0,
+  open: 1,
+  negotiating: 2,
+  accepted: 3,
+  provider_en_route: 4,
+  provider_arrived: 5,
+  in_progress: 6,
+  awaiting_customer_confirmation: 7,
+  completed: 8,
+  cancelled: -1,
+};
 
 async function listDemands() {
   const db = await getDatabase();
   if (!db) return [...memoryStore.demands];
-  const docs = await db.collection<Demand>(collectionName).find({}).sort({ createdAt: -1 }).toArray();
-  return docs;
+  return db.collection<Demand>(collectionName).find({}).sort({ createdAt: -1 }).toArray();
+}
+
+function mergeDemandStatus(existing: Demand['status'] | undefined, incoming: Demand['status']) {
+  if (!existing || existing === 'cancelled' || incoming === 'cancelled') return incoming;
+  return statusRank[incoming] >= statusRank[existing] ? incoming : existing;
 }
 
 export async function registerDemandRoutes(app: FastifyInstance) {
@@ -47,17 +63,27 @@ export async function registerDemandRoutes(app: FastifyInstance) {
       createdAt: body.createdAt ?? now,
       updatedAt: body.updatedAt ?? now,
       ...(body.acceptedProviderId ? { acceptedProviderId: body.acceptedProviderId } : {}),
+      ...(body.enRouteAt ? { enRouteAt: body.enRouteAt } : {}),
+      ...(body.arrivedAt ? { arrivedAt: body.arrivedAt } : {}),
+      ...(body.startedAt ? { startedAt: body.startedAt } : {}),
+      ...(body.completionRequestedAt ? { completionRequestedAt: body.completionRequestedAt } : {}),
+      ...(body.customerConfirmedCompletionAt ? { customerConfirmedCompletionAt: body.customerConfirmedCompletionAt } : {}),
+      ...(body.completedAt ? { completedAt: body.completedAt } : {}),
     };
 
     const db = await getDatabase();
     if (!db) {
       const existingIndex = memoryStore.demands.findIndex((item) => item.id === demand.id);
-      if (existingIndex >= 0) memoryStore.demands[existingIndex] = demand;
-      else memoryStore.demands.unshift(demand);
-      return reply.code(existingIndex >= 0 ? 200 : 201).send(demand);
+      const existing = existingIndex >= 0 ? memoryStore.demands[existingIndex] : undefined;
+      const merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
+      if (existingIndex >= 0) memoryStore.demands[existingIndex] = merged;
+      else memoryStore.demands.unshift(merged);
+      return reply.code(existingIndex >= 0 ? 200 : 201).send(merged);
     }
 
-    await db.collection<Demand>(collectionName).replaceOne({ id: demand.id }, demand, { upsert: true });
-    return reply.code(201).send(demand);
+    const existing = await db.collection<Demand>(collectionName).findOne({ id: demand.id });
+    const merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
+    await db.collection<Demand>(collectionName).replaceOne({ id: demand.id }, merged, { upsert: true });
+    return reply.code(existing ? 200 : 201).send(merged);
   });
 }
