@@ -13,6 +13,7 @@
   "dependencies": {
     "@fastify/cors": "latest",
     "@fastify/helmet": "latest",
+    "@fastify/websocket": "^11.3.0",
     "@rubli/shared": "workspace:*",
     "dotenv": "latest",
     "fastify": "latest",
@@ -20,8 +21,8 @@
   },
   "devDependencies": {
     "@types/node": "latest",
-    "tsx": "latest",
-    "typescript": "latest",
+    "@types/ws": "^8.18.1",
+    "typescript": "~5.9.2",
     "vitest": "latest"
   }
 }
