@@ -1,6 +1,7 @@
 import type { Demand } from '@rubli/shared';
 
 const API_PORT = 3000;
+const LAN_API_URL = 'http://192.168.100.85:3000';
 
 function resolveApiUrl() {
   const configured = process.env.EXPO_PUBLIC_RUBLI_API_URL?.trim();
@@ -10,9 +11,9 @@ function resolveApiUrl() {
     return `http://${window.location.hostname}:${API_PORT}`;
   }
 
-  // Native builds must set EXPO_PUBLIC_RUBLI_API_URL, for example:
-  // http://192.168.0.10:3000
-  return '';
+  // Desenvolvimento na rede local: o celular usa o IP do PC.
+  // Para produção, defina EXPO_PUBLIC_RUBLI_API_URL com a URL do Render.
+  return LAN_API_URL;
 }
 
 export const API_URL = resolveApiUrl();
