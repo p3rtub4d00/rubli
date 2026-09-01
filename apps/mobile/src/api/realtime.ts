@@ -1,4 +1,4 @@
-import type { UserRole } from '@rubli/shared';
+import { getUser } from '../storage/localStore';
 import { registerForPushNotifications } from '../notifications/push';
 
 export type RealtimeEvent = {
@@ -26,9 +26,11 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connectRealtime(connectUserId!); }, 1500);
 }
 
-export function connectRealtime(userId: string, role?: UserRole) {
+export function connectRealtime(userId: string) {
   connectUserId = userId;
-  if (role) registerForPushNotifications({ id: userId, role, name: '', createdAt: new Date().toISOString() }).catch(() => undefined);
+  getUser().then((storedUser) => {
+    if (storedUser?.id === userId) registerForPushNotifications(storedUser).catch(() => undefined);
+  }).catch(() => undefined);
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   try {
     const ws = new WebSocket(`${URL}?userId=${encodeURIComponent(userId)}`);
