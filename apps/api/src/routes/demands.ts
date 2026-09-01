@@ -4,7 +4,7 @@ import { DEMAND_CATEGORIES } from '@rubli/shared';
 import { memoryStore } from '../store/memoryStore.js';
 import { getDatabase } from '../store/database.js';
 import { broadcastRealtime } from '../realtime.js';
-import { sendPushToRoles } from '../push.js';
+import { sendPushToRoles, sendPushToUsers } from '../push.js';
 
 const demandTypes: DemandType[] = ['service', 'purchase', 'delivery', 'freight'];
 const collectionName = 'demands';
@@ -16,6 +16,17 @@ async function listDemands() {
   return db.collection<Demand>(collectionName).find({}).sort({ createdAt: -1 }).toArray();
 }
 function mergeDemandStatus(existing: Demand['status'] | undefined, incoming: Demand['status']) { if (!existing || existing === 'cancelled' || incoming === 'cancelled') return incoming; return statusRank[incoming] >= statusRank[existing] ? incoming : existing; }
+
+function stageText(status: Demand['status']) {
+  switch (status) {
+    case 'provider_en_route': return { title: '🚗 Prestador a caminho', body: 'O prestador informou que está a caminho.' };
+    case 'provider_arrived': return { title: '📍 Prestador chegou', body: 'O prestador informou que chegou ao local.' };
+    case 'in_progress': return { title: '🛠 Serviço iniciado', body: 'O prestador iniciou o serviço.' };
+    case 'awaiting_customer_confirmation': return { title: '✅ Serviço aguardando sua confirmação', body: 'O prestador informou que concluiu o serviço. Abra o Rubli para conferir e confirmar.' };
+    case 'completed': return { title: '✅ Serviço concluído', body: 'O cliente confirmou a conclusão do serviço.' };
+    default: return null;
+  }
+}
 
 export async function registerDemandRoutes(app: FastifyInstance) {
   app.get('/api/v1/demands', async () => listDemands());
@@ -31,14 +42,15 @@ export async function registerDemandRoutes(app: FastifyInstance) {
 
     const db = await getDatabase();
     let merged: Demand;
+    let existing: Demand | undefined;
     let created = false;
     if (!db) {
       const existingIndex = memoryStore.demands.findIndex((item) => item.id === demand.id);
-      const existing = existingIndex >= 0 ? memoryStore.demands[existingIndex] : undefined;
+      existing = existingIndex >= 0 ? memoryStore.demands[existingIndex] : undefined;
       merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
       if (existingIndex >= 0) memoryStore.demands[existingIndex] = merged; else { memoryStore.demands.unshift(merged); created = true; }
     } else {
-      const existing = await db.collection<Demand>(collectionName).findOne({ id: demand.id });
+      existing = await db.collection<Demand>(collectionName).findOne({ id: demand.id }) ?? undefined;
       merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
       created = !existing;
       await db.collection<Demand>(collectionName).replaceOne({ id: demand.id }, merged, { upsert: true });
@@ -46,10 +58,17 @@ export async function registerDemandRoutes(app: FastifyInstance) {
 
     const eventAt = new Date().toISOString();
     broadcastRealtime({ type: created ? 'demand.created' : 'demand.updated', demandId: merged.id, actorUserId: merged.requesterId, at: eventAt });
+
     if (created) {
       const title = merged.isUrgent ? '⚡ Novo chamado urgente' : '🔔 Novo chamado disponível';
       const bodyText = merged.isUrgent ? `${merged.title} • atendimento imediato` : `${merged.title} • nova oportunidade na sua região`;
       await sendPushToRoles(['provider'], { title, body: bodyText, data: { type: 'demand.created', demandId: merged.id } });
+    } else if (existing && existing.status !== merged.status) {
+      const stage = stageText(merged.status);
+      if (stage) {
+        const recipientId = merged.status === 'completed' ? merged.acceptedProviderId : merged.requesterId;
+        if (recipientId) await sendPushToUsers([recipientId], { ...stage, data: { type: 'demand.updated', demandId: merged.id, status: merged.status } });
+      }
     }
 
     return reply.code(created ? 201 : 200).send(merged);
