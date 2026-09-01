@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { apiRegisterPushToken } from '../api/client';
 import type { User } from '@rubli/shared';
@@ -33,7 +34,10 @@ export async function registerForPushNotifications(user: User) {
   }
   if (status !== 'granted') return null;
 
-  const tokenResponse = await Notifications.getExpoPushTokenAsync();
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) return null;
+
+  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
   const token = tokenResponse.data;
   if (!token) return null;
 
