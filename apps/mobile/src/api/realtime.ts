@@ -1,3 +1,6 @@
+import type { UserRole } from '@rubli/shared';
+import { registerForPushNotifications } from '../notifications/push';
+
 export type RealtimeEvent = {
   type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created';
   demandId?: string;
@@ -23,8 +26,9 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connectRealtime(connectUserId!); }, 1500);
 }
 
-export function connectRealtime(userId: string) {
+export function connectRealtime(userId: string, role?: UserRole) {
   connectUserId = userId;
+  if (role) registerForPushNotifications({ id: userId, role, name: '', createdAt: new Date().toISOString() }).catch(() => undefined);
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   try {
     const ws = new WebSocket(`${URL}?userId=${encodeURIComponent(userId)}`);
