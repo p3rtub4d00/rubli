@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Modal, SafeAreaView, StyleSheet, Text, Toucha
 import type { User } from '@rubli/shared';
 import App from './App';
 import { getUser, saveUser } from './src/storage/localStore';
+import { registerForPushNotifications } from './src/notifications/push';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AccountSetupScreen } from './src/screens/AccountSetupScreen';
 import { TestNegotiationsScreen } from './src/screens/TestNegotiationsScreen';
@@ -36,6 +37,7 @@ export default function TestHarness() {
 
   async function refresh() { const [user, storedProfiles] = await Promise.all([getUser(), readProfiles()]); setActiveUser(user); setProfiles(storedProfiles); }
   useEffect(() => { refresh().finally(() => setLoading(false)); }, []);
+  useEffect(() => { if (!activeUser) return; registerForPushNotifications(activeUser).catch(() => undefined); }, [activeUser?.id]);
   async function activateProfile(profile: User) { await saveUser(profile); setActiveUser(profile); setSelectorOpen(false); setAppVersion((value) => value + 1); }
   async function onAccountCreated() { const user = await getUser(); if (!user) return; const current = await readProfiles(); const next = [...current.filter((item) => item.id !== user.id), user]; await writeProfiles(next); setProfiles(next); setActiveUser(user); setAccountSetupOpen(false); setAppVersion((value) => value + 1); }
   async function onProfileSaved(user: User) { await saveUser(user); const current = await readProfiles(); const next = [...current.filter((item) => item.id !== user.id), user]; await writeProfiles(next); setProfiles(next); setActiveUser(user); setProfileOpen(false); setAppVersion((value) => value + 1); }
@@ -68,28 +70,4 @@ export default function TestHarness() {
   </SafeAreaView>;
 }
 
-const styles = StyleSheet.create({
-  root:{flex:1,backgroundColor:'#F7F9FC'},
-  appWrap:{flex:1},
-  loading:{flex:1,backgroundColor:'#F7F9FC',alignItems:'center',justifyContent:'center'},
-  testBar:{minHeight:44,backgroundColor:'#FFF',borderTopWidth:1,borderTopColor:'#D6DEE9',paddingHorizontal:8,paddingVertical:6,flexDirection:'row',gap:6,alignItems:'center',flexWrap:'wrap'},
-  testBarLabel:{color:'#718096',fontWeight:'900',fontSize:10,marginRight:2},
-  testButton:{backgroundColor:'#FFF',borderWidth:1,borderColor:'#D6DEE9',borderRadius:999,paddingHorizontal:10,paddingVertical:7},
-  testButtonText:{color:BRAND,fontWeight:'800',fontSize:11},
-  modalBackdrop:{flex:1,backgroundColor:'rgba(0,0,0,0.38)',justifyContent:'flex-end'},
-  modalCard:{backgroundColor:'#FFF',borderTopLeftRadius:24,borderTopRightRadius:24,padding:20,paddingBottom:28},
-  modalTitle:{color:BRAND,fontSize:24,fontWeight:'900',marginBottom:5},
-  modalSubtitle:{color:'#67768A',lineHeight:19,marginBottom:16},
-  profileCard:{borderWidth:1,borderColor:'#DFE6EF',borderRadius:16,padding:14,marginBottom:10,flexDirection:'row',alignItems:'center'},
-  profileActive:{borderColor:ACCENT,backgroundColor:'#FFF7EF'},
-  profileText:{flex:1},
-  profileName:{color:BRAND,fontSize:16,fontWeight:'800'},
-  profileMeta:{color:'#718096',marginTop:3,fontSize:12},
-  activeMark:{color:ACCENT,fontWeight:'900',fontSize:11},
-  newProfileButton:{borderWidth:1,borderColor:BRAND,borderRadius:14,padding:14,alignItems:'center',marginTop:4},
-  newProfileText:{color:BRAND,fontWeight:'900'},
-  resetButton:{padding:12,alignItems:'center'},
-  resetText:{color:'#9A5A34',fontWeight:'700',fontSize:12},
-  closeButton:{backgroundColor:BRAND,borderRadius:14,padding:15,alignItems:'center',marginTop:8},
-  closeText:{color:'#FFF',fontWeight:'900'}
-});
+const styles = StyleSheet.create({ root:{flex:1,backgroundColor:'#F7F9FC'}, appWrap:{flex:1}, loading:{flex:1,backgroundColor:'#F7F9FC',alignItems:'center',justifyContent:'center'}, testBar:{minHeight:44,backgroundColor:'#FFF',borderTopWidth:1,borderTopColor:'#D6DEE9',paddingHorizontal:8,paddingVertical:6,flexDirection:'row',gap:6,alignItems:'center',flexWrap:'wrap'}, testBarLabel:{color:'#718096',fontWeight:'900',fontSize:10,marginRight:2}, testButton:{backgroundColor:'#FFF',borderWidth:1,borderColor:'#D6DEE9',borderRadius:999,paddingHorizontal:10,paddingVertical:7}, testButtonText:{color:BRAND,fontWeight:'800',fontSize:11}, modalBackdrop:{flex:1,backgroundColor:'rgba(0,0,0,0.38)',justifyContent:'flex-end'}, modalCard:{backgroundColor:'#FFF',borderTopLeftRadius:24,borderTopRightRadius:24,padding:20,paddingBottom:28}, modalTitle:{color:BRAND,fontSize:24,fontWeight:'900',marginBottom:5}, modalSubtitle:{color:'#67768A',lineHeight:19,marginBottom:16}, profileCard:{borderWidth:1,borderColor:'#DFE6EF',borderRadius:16,padding:14,marginBottom:10,flexDirection:'row',alignItems:'center'}, profileActive:{borderColor:ACCENT,backgroundColor:'#FFF7EF'}, profileText:{flex:1}, profileName:{color:BRAND,fontSize:16,fontWeight:'800'}, profileMeta:{color:'#718096',marginTop:3,fontSize:12}, activeMark:{color:ACCENT,fontWeight:'900',fontSize:11}, newProfileButton:{borderWidth:1,borderColor:BRAND,borderRadius:14,padding:14,alignItems:'center',marginTop:4}, newProfileText:{color:BRAND,fontWeight:'900'}, resetButton:{padding:12,alignItems:'center'}, resetText:{color:'#9A5A34',fontWeight:'700',fontSize:12}, closeButton:{backgroundColor:BRAND,borderRadius:14,padding:15,alignItems:'center',marginTop:8}, closeText:{color:'#FFF',fontWeight:'900'} });
