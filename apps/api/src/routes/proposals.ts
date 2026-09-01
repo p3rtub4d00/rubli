@@ -6,29 +6,44 @@ import { broadcastRealtime } from '../realtime.js';
 
 const proposalsCollection = 'proposals';
 const demandsCollection = 'demands';
+type MongoProposal = Proposal & { _id?: unknown };
 
 async function listProposals(demandId?: string) {
   const db = await getDatabase();
   if (!db) return demandId ? memoryStore.proposals.filter((item) => item.demandId === demandId) : [...memoryStore.proposals];
   const filter = demandId ? { demandId } : {};
-  return db.collection<Proposal>(proposalsCollection).find(filter).sort({ createdAt: -1 }).toArray();
+  return db.collection<Proposal>(proposalsCollection).find(filter, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
 }
 
 async function findDemand(demandId: string) {
   const db = await getDatabase();
   if (!db) return memoryStore.demands.find((item: Demand) => item.id === demandId);
-  return db.collection<Demand>(demandsCollection).findOne({ id: demandId });
+  return db.collection<Demand>(demandsCollection).findOne({ id: demandId }, { projection: { _id: 0 } });
 }
 
-async function persistProposal(proposal: Proposal) {
+function normalizeProposal(proposal: MongoProposal): Proposal {
+  const { _id: _ignoredId, ...clean } = proposal;
+  if (clean.status === 'superseded' || clean.status === 'rejected' || clean.status === 'withdrawn') return clean;
+  return clean.status === 'accepted' || Boolean(clean.customerConfirmedAt || clean.providerConfirmedAt)
+    ? { ...clean, status: 'accepted' }
+    : { ...clean, status: 'pending' };
+}
+
+async function persistProposal(input: MongoProposal) {
+  const proposal = normalizeProposal(input);
   const db = await getDatabase();
   if (!db) {
     const index = memoryStore.proposals.findIndex((item) => item.id === proposal.id);
     if (index >= 0) memoryStore.proposals[index] = proposal;
     else memoryStore.proposals.unshift(proposal);
-    return;
+    return proposal;
   }
-  await db.collection<Proposal>(proposalsCollection).replaceOne({ id: proposal.id }, proposal, { upsert: true });
+  await db.collection<Proposal>(proposalsCollection).updateOne(
+    { id: proposal.id },
+    { $set: proposal },
+    { upsert: true },
+  );
+  return proposal;
 }
 
 async function persistDemand(demand: Demand) {
@@ -37,18 +52,14 @@ async function persistDemand(demand: Demand) {
     const index = memoryStore.demands.findIndex((item) => item.id === demand.id);
     if (index >= 0) memoryStore.demands[index] = demand;
     else memoryStore.demands.unshift(demand);
-    return;
+    return demand;
   }
-  await db.collection<Demand>(demandsCollection).replaceOne({ id: demand.id }, demand, { upsert: true });
-}
-
-function normalizeProposal(proposal: Proposal): Proposal {
-  if (proposal.status === 'superseded' || proposal.status === 'rejected' || proposal.status === 'withdrawn') return proposal;
-  // A proposal becomes "accepted" as soon as the recipient accepts it.
-  // The service only becomes executable after BOTH sides have confirmed.
-  return proposal.status === 'accepted' || Boolean(proposal.customerConfirmedAt || proposal.providerConfirmedAt)
-    ? { ...proposal, status: 'accepted' }
-    : { ...proposal, status: 'pending' };
+  await db.collection<Demand>(demandsCollection).updateOne(
+    { id: demand.id },
+    { $set: demand },
+    { upsert: true },
+  );
+  return demand;
 }
 
 export async function registerProposalRoutes(app: FastifyInstance) {
@@ -86,22 +97,24 @@ export async function registerProposalRoutes(app: FastifyInstance) {
 
   app.post<{ Body: { proposals: Proposal[] } }>('/api/v1/proposals/sync', async (request, reply) => {
     const proposals = Array.isArray(request.body?.proposals) ? request.body.proposals : [];
+    let synced = 0;
     for (const incoming of proposals) {
-      const normalized = normalizeProposal(incoming);
-      await persistProposal(normalized);
+      if (!incoming?.id || !incoming?.demandId || !incoming?.providerId) continue;
+      const normalized = await persistProposal(incoming);
       const demand = await findDemand(normalized.demandId);
       if (!demand) continue;
 
       const bothConfirmed = Boolean(normalized.customerConfirmedAt && normalized.providerConfirmedAt);
-      const nextDemand: Demand = bothConfirmed
+      const nextDemand: Demand = bothConfirmed || normalized.status === 'accepted'
         ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: new Date().toISOString() }
         : { ...demand, status: demand.status === 'accepted' ? 'accepted' : 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: new Date().toISOString() };
 
       await persistDemand(nextDemand);
+      synced += 1;
       broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId: normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId, at: nextDemand.updatedAt });
       broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId: normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId, at: nextDemand.updatedAt });
     }
-    return reply.send({ ok: true, count: proposals.length });
+    return reply.send({ ok: true, count: synced });
   });
 
   app.post<{ Params: { id: string }; Body: { requesterId: string } }>('/api/v1/proposals/:id/accept', async (request, reply) => {
@@ -131,12 +144,11 @@ async function confirmProposal(id: string, userId: string | undefined, reply: an
   const nextProposal: Proposal = userId === demand.requesterId
     ? { ...proposal, status: 'accepted', customerConfirmedAt: proposal.customerConfirmedAt ?? now }
     : { ...proposal, status: 'accepted', providerConfirmedAt: proposal.providerConfirmedAt ?? now };
-  const normalized = normalizeProposal(nextProposal);
+  const normalized = await persistProposal(nextProposal);
   const bothConfirmed = Boolean(normalized.customerConfirmedAt && normalized.providerConfirmedAt);
   const nextDemand: Demand = bothConfirmed
     ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: now }
-    : { ...demand, status: demand.status === 'accepted' ? 'accepted' : 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: now };
-  await persistProposal(normalized);
+    : { ...demand, status: demand.status === 'accepted' ? 'accepted' : 'negotiating', acceptedProviderId: normalized.providerId, updatedAt: now };
   await persistDemand(nextDemand);
 
   broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId: userId, at: now });
