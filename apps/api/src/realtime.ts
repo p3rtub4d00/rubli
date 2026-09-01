@@ -1,4 +1,4 @@
-import type { SocketStream } from '@fastify/websocket';
+import type { WebSocket } from 'ws';
 
 export type RealtimeEvent = {
   type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created';
@@ -9,9 +9,9 @@ export type RealtimeEvent = {
   at: string;
 };
 
-const clients = new Set<SocketStream['socket']>();
+const clients = new Set<WebSocket>();
 
-export function attachRealtimeClient(socket: SocketStream['socket']) {
+export function attachRealtimeClient(socket: WebSocket) {
   clients.add(socket);
   socket.on('close', () => clients.delete(socket));
   socket.on('error', () => clients.delete(socket));
