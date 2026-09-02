@@ -51,8 +51,30 @@ export async function getDemands(): Promise<Demand[]> {
 }
 
 export async function saveProposals(proposals: Proposal[]) {
+  const previous = await readJson<Proposal[]>(KEYS.proposals, []);
   await writeJson(KEYS.proposals, proposals);
   try { await apiSyncProposals(proposals); } catch {}
+
+  // Confirmation is authoritative on the API. Detect a local confirmation and
+  // immediately persist it through the participant-aware endpoint so a stale
+  // device cannot overwrite the other side's confirmation.
+  const demands = await readJson<Demand[]>(KEYS.demands, []);
+  for (const next of proposals) {
+    const prev = previous.find((item) => item.id === next.id);
+    if (!prev) continue;
+    const customerChanged = Boolean(next.customerConfirmedAt) && !Boolean(prev.customerConfirmedAt);
+    const providerChanged = Boolean(next.providerConfirmedAt) && !Boolean(prev.providerConfirmedAt);
+    if (!customerChanged && !providerChanged) continue;
+    const demand = demands.find((item) => item.id === next.demandId);
+    if (!demand) continue;
+    const userId = customerChanged ? demand.requesterId : next.providerId;
+    try {
+      const result = await apiConfirmProposal(next.id, userId);
+      await writeJson(KEYS.proposals, (await readJson<Proposal[]>(KEYS.proposals, [])).map((item) => item.id === next.id ? result.proposal : item));
+      const currentDemands = await readJson<Demand[]>(KEYS.demands, []);
+      await writeJson(KEYS.demands, currentDemands.map((item) => item.id === result.demand.id ? result.demand : item));
+    } catch {}
+  }
 }
 
 export async function confirmProposalOnServer(proposalId: string, userId: string) {
