@@ -28,6 +28,8 @@ export async function apiListDemands() { return request<Demand[]>('/api/v1/deman
 export async function apiCreateDemand(demand: Demand) { return request<Demand>('/api/v1/demands', { method: 'POST', body: JSON.stringify(demand) }); }
 export async function apiListProposals(demandId?: string) { return request<Proposal[]>(`/api/v1/proposals${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`); }
 export async function apiSyncProposals(proposals: Proposal[]) { return request<{ ok: boolean; count: number }>('/api/v1/proposals/sync', { method: 'POST', body: JSON.stringify({ proposals }) }); }
+export async function apiAcceptProposal(proposalId: string, requesterId: string) { return request<{ proposal: Proposal; demand: Demand }>(`/api/v1/proposals/${encodeURIComponent(proposalId)}/accept`, { method: 'POST', body: JSON.stringify({ requesterId }) }); }
+export async function apiConfirmProposal(proposalId: string, userId: string) { return request<{ proposal: Proposal; demand: Demand }>(`/api/v1/proposals/${encodeURIComponent(proposalId)}/confirm`, { method: 'POST', body: JSON.stringify({ userId }) }); }
 export async function apiCreateConversation(conversation: Partial<Conversation>) { return request<Conversation>('/api/v1/conversations', { method: 'POST', body: JSON.stringify(conversation) }); }
 export async function apiListConversations(demandId?: string) { return request<Conversation[]>(`/api/v1/conversations${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`); }
 export async function apiListMessages(conversationId: string) { return request<ChatMessage[]>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`); }
