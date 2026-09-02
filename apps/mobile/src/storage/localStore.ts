@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
-import { apiCreateConversation, apiCreateDemand, apiCreateMessage, apiListConversations, apiListDemands, apiListMessages, apiListProposals, apiSyncProposals } from '../api/client';
+import { apiConfirmProposal, apiCreateConversation, apiCreateDemand, apiCreateMessage, apiListConversations, apiListDemands, apiListMessages, apiListProposals, apiSyncProposals } from '../api/client';
 
 const KEYS = {
   user: '@rubli/user', users: '@rubli/users', demands: '@rubli/demands', proposals: '@rubli/proposals', conversations: '@rubli/conversations', messages: '@rubli/messages', ratings: '@rubli/ratings',
@@ -54,6 +54,16 @@ export async function saveProposals(proposals: Proposal[]) {
   await writeJson(KEYS.proposals, proposals);
   try { await apiSyncProposals(proposals); } catch {}
 }
+
+export async function confirmProposalOnServer(proposalId: string, userId: string) {
+  const result = await apiConfirmProposal(proposalId, userId);
+  const current = await readJson<Proposal[]>(KEYS.proposals, []);
+  await writeJson(KEYS.proposals, current.map((item) => item.id === proposalId ? result.proposal : item));
+  const demands = await readJson<Demand[]>(KEYS.demands, []);
+  await writeJson(KEYS.demands, demands.map((item) => item.id === result.demand.id ? result.demand : item));
+  return result;
+}
+
 export async function getProposals(): Promise<Proposal[]> {
   const localProposals = await readJson<Proposal[]>(KEYS.proposals, []);
   try {
