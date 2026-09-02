@@ -14,7 +14,10 @@ export const API_URL = resolveApiUrl();
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!API_URL) throw new Error('API URL não configurada. Defina EXPO_PUBLIC_RUBLI_API_URL.');
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } });
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+  });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(body || `HTTP ${response.status}`);
@@ -28,6 +31,7 @@ export async function apiListDemands() { return request<Demand[]>('/api/v1/deman
 export async function apiCreateDemand(demand: Demand) { return request<Demand>('/api/v1/demands', { method: 'POST', body: JSON.stringify(demand) }); }
 export async function apiListProposals(demandId?: string) { return request<Proposal[]>(`/api/v1/proposals${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`); }
 export async function apiSyncProposals(proposals: Proposal[]) { return request<{ ok: boolean; count: number }>('/api/v1/proposals/sync', { method: 'POST', body: JSON.stringify({ proposals }) }); }
+export async function apiCreateProposal(input: { demandId: string; providerId: string; amount: number; message?: string }) { return request<Proposal>('/api/v1/proposals', { method: 'POST', body: JSON.stringify(input) }); }
 export async function apiAcceptProposal(proposalId: string, requesterId: string) { return request<{ proposal: Proposal; demand: Demand }>(`/api/v1/proposals/${encodeURIComponent(proposalId)}/accept`, { method: 'POST', body: JSON.stringify({ requesterId }) }); }
 export async function apiConfirmProposal(proposalId: string, userId: string) { return request<{ proposal: Proposal; demand: Demand }>(`/api/v1/proposals/${encodeURIComponent(proposalId)}/confirm`, { method: 'POST', body: JSON.stringify({ userId }) }); }
 export async function apiCreateConversation(conversation: Partial<Conversation>) { return request<Conversation>('/api/v1/conversations', { method: 'POST', body: JSON.stringify(conversation) }); }
