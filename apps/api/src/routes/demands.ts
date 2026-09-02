@@ -16,6 +16,25 @@ async function listDemands() {
   return db.collection<Demand>(collectionName).find({}).sort({ createdAt: -1 }).toArray();
 }
 function mergeDemandStatus(existing: Demand['status'] | undefined, incoming: Demand['status']) { if (!existing || existing === 'cancelled' || incoming === 'cancelled') return incoming; return statusRank[incoming] >= statusRank[existing] ? incoming : existing; }
+function mergeDemand(existing: Demand | undefined, incoming: Demand): Demand {
+  if (!existing) return incoming;
+  return {
+    ...existing,
+    ...incoming,
+    status: mergeDemandStatus(existing.status, incoming.status),
+    ...(incoming.budget === undefined ? { budget: existing.budget, budgetType: existing.budgetType } : {}),
+    ...(incoming.latitude === undefined ? { latitude: existing.latitude } : {}),
+    ...(incoming.longitude === undefined ? { longitude: existing.longitude } : {}),
+    ...(incoming.photoUris === undefined ? { photoUris: existing.photoUris } : {}),
+    ...(incoming.acceptedProviderId === undefined ? { acceptedProviderId: existing.acceptedProviderId } : {}),
+    ...(incoming.enRouteAt === undefined ? { enRouteAt: existing.enRouteAt } : {}),
+    ...(incoming.arrivedAt === undefined ? { arrivedAt: existing.arrivedAt } : {}),
+    ...(incoming.startedAt === undefined ? { startedAt: existing.startedAt } : {}),
+    ...(incoming.completionRequestedAt === undefined ? { completionRequestedAt: existing.completionRequestedAt } : {}),
+    ...(incoming.customerConfirmedCompletionAt === undefined ? { customerConfirmedCompletionAt: existing.customerConfirmedCompletionAt } : {}),
+    ...(incoming.completedAt === undefined ? { completedAt: existing.completedAt } : {}),
+  };
+}
 
 function stageText(status: Demand['status']) {
   switch (status) {
@@ -38,22 +57,22 @@ export async function registerDemandRoutes(app: FastifyInstance) {
     if (!allowedCategories.includes(body.category)) return reply.code(400).send({ error: 'INVALID_CATEGORY', message: 'Categoria incompatível com o tipo da demanda.' });
 
     const now = new Date().toISOString();
-    const demand: Demand = { id: body.id, requesterId: body.requesterId, type: body.type, title: body.title.trim(), description: body.description.trim(), category: body.category, budgetType: body.budget ? 'fixed' : 'open', budget: typeof body.budget === 'number' ? body.budget : undefined, locationLabel: body.locationLabel.trim(), latitude: body.latitude, longitude: body.longitude, isUrgent: body.isUrgent === true, photoUris: body.photoUris, status: body.status ?? 'open', createdAt: body.createdAt ?? now, updatedAt: body.updatedAt ?? now, ...(body.acceptedProviderId ? { acceptedProviderId: body.acceptedProviderId } : {}), ...(body.enRouteAt ? { enRouteAt: body.enRouteAt } : {}), ...(body.arrivedAt ? { arrivedAt: body.arrivedAt } : {}), ...(body.startedAt ? { startedAt: body.startedAt } : {}), ...(body.completionRequestedAt ? { completionRequestedAt: body.completionRequestedAt } : {}), ...(body.customerConfirmedCompletionAt ? { customerConfirmedCompletionAt: body.customerConfirmedCompletionAt } : {}), ...(body.completedAt ? { completedAt: body.completedAt } : {}) };
+    const incoming: Demand = { id: body.id, requesterId: body.requesterId, type: body.type, title: body.title.trim(), description: body.description.trim(), category: body.category, budgetType: body.budget ? 'fixed' : 'open', budget: typeof body.budget === 'number' ? body.budget : undefined, locationLabel: body.locationLabel.trim(), latitude: body.latitude, longitude: body.longitude, isUrgent: body.isUrgent === true, photoUris: body.photoUris, status: body.status ?? 'open', createdAt: body.createdAt ?? now, updatedAt: body.updatedAt ?? now, ...(body.acceptedProviderId ? { acceptedProviderId: body.acceptedProviderId } : {}), ...(body.enRouteAt ? { enRouteAt: body.enRouteAt } : {}), ...(body.arrivedAt ? { arrivedAt: body.arrivedAt } : {}), ...(body.startedAt ? { startedAt: body.startedAt } : {}), ...(body.completionRequestedAt ? { completionRequestedAt: body.completionRequestedAt } : {}), ...(body.customerConfirmedCompletionAt ? { customerConfirmedCompletionAt: body.customerConfirmedCompletionAt } : {}), ...(body.completedAt ? { completedAt: body.completedAt } : {}) };
 
     const db = await getDatabase();
     let merged: Demand;
     let existing: Demand | undefined;
     let created = false;
     if (!db) {
-      const existingIndex = memoryStore.demands.findIndex((item) => item.id === demand.id);
+      const existingIndex = memoryStore.demands.findIndex((item) => item.id === incoming.id);
       existing = existingIndex >= 0 ? memoryStore.demands[existingIndex] : undefined;
-      merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
+      merged = mergeDemand(existing, incoming);
       if (existingIndex >= 0) memoryStore.demands[existingIndex] = merged; else { memoryStore.demands.unshift(merged); created = true; }
     } else {
-      existing = await db.collection<Demand>(collectionName).findOne({ id: demand.id }) ?? undefined;
-      merged = existing ? { ...existing, ...demand, status: mergeDemandStatus(existing.status, demand.status) } : demand;
+      existing = await db.collection<Demand>(collectionName).findOne({ id: incoming.id }) ?? undefined;
+      merged = mergeDemand(existing, incoming);
       created = !existing;
-      await db.collection<Demand>(collectionName).replaceOne({ id: demand.id }, merged, { upsert: true });
+      await db.collection<Demand>(collectionName).replaceOne({ id: incoming.id }, merged, { upsert: true });
     }
 
     const eventAt = new Date().toISOString();
