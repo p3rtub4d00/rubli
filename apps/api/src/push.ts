@@ -31,14 +31,14 @@ export async function sendPushToUsers(
   notification: { title: string; body: string; data?: Record<string, unknown> },
 ) {
   const ids = [...new Set(userIds.filter(Boolean))];
-  if (ids.length === 0) return;
+  if (!ids.length) return;
   const db = await getDatabase();
   if (!db) return;
 
   const recipients = await db.collection<PushRecipient>(collectionName)
     .find({ userId: { $in: ids } })
     .toArray();
-  if (recipients.length === 0) return;
+  if (!recipients.length) return;
 
   const messages = recipients.map((recipient) => ({
     to: recipient.token,
@@ -47,16 +47,21 @@ export async function sendPushToUsers(
     body: notification.body,
     data: notification.data ?? {},
     channelId: 'service-opportunities',
+    priority: 'high',
   }));
 
   try {
-    await fetch(expoPushUrl, {
+    const response = await fetch(expoPushUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', accept: 'application/json' },
       body: JSON.stringify(messages),
     });
-  } catch {
-    // Push failure must never break the main Rubli operation.
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.data?.some?.((ticket: { status?: string; details?: unknown }) => ticket.status === 'error')) {
+      console.error('[RUBLI PUSH] Expo Push Service response:', JSON.stringify(payload));
+    }
+  } catch (error) {
+    console.error('[RUBLI PUSH] request failed:', error);
   }
 }
 
