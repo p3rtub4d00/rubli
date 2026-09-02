@@ -13,8 +13,12 @@ Notifications.setNotificationHandler({
   }),
 });
 
+function getProjectId() {
+  return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? 'ca3b9f0a-42bf-4da1-ae11-f9479805afc1';
+}
+
 export async function registerForPushNotifications(user: User) {
-  if (Platform.OS === 'web') return null;
+  if (Platform.OS !== 'android' && Platform.OS !== 'ios') return null;
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('service-opportunities', {
@@ -34,10 +38,7 @@ export async function registerForPushNotifications(user: User) {
   }
   if (status !== 'granted') return null;
 
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  if (!projectId) return null;
-
-  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
+  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId: getProjectId() });
   const token = tokenResponse.data;
   if (!token) return null;
 
