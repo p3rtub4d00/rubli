@@ -39,6 +39,12 @@ async function listMessages(conversationId: string) {
   return db.collection<ChatMessage>('messages').find({ conversationId }).sort({ createdAt: 1 }).toArray();
 }
 
+async function findMessage(messageId: string) {
+  const db = await getDatabase();
+  if (!db) return memoryStore.messages.find((item) => item.id === messageId);
+  return db.collection<ChatMessage>('messages').findOne({ id: messageId });
+}
+
 async function persistMessage(message: ChatMessage) {
   const db = await getDatabase();
   if (!db) {
@@ -76,8 +82,12 @@ export async function registerChatRoutes(app: FastifyInstance) {
     if (!conversation) return reply.code(404).send({ error: 'CONVERSATION_NOT_FOUND', message: 'Conversa não encontrada.' });
     if (![conversation.customerId, conversation.providerId].includes(body.senderId)) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta conversa.' });
 
+    const messageId = body.id ?? id('msg');
+    const existing = await findMessage(messageId);
+    if (existing) return reply.code(200).send(existing);
+
     const now = new Date().toISOString();
-    const message: ChatMessage = { id: body.id ?? id('msg'), conversationId: conversation.id, senderId: body.senderId, text: body.text.trim(), createdAt: body.createdAt ?? now };
+    const message: ChatMessage = { id: messageId, conversationId: conversation.id, senderId: body.senderId, text: body.text.trim(), createdAt: body.createdAt ?? now };
     await persistMessage(message);
     await persistConversation({ ...conversation, updatedAt: now, lastMessageAt: now });
     const recipientId = body.senderId === conversation.customerId ? conversation.providerId : conversation.customerId;
