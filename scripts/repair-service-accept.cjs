@@ -1,56 +1,110 @@
 const fs = require('fs');
 const path = require('path');
 
-function patchFile(relativePath, patches) {
+function readFile(relativePath) {
   const file = path.join(__dirname, '..', relativePath);
   if (!fs.existsSync(file)) throw new Error(`Não encontrei o arquivo: ${file}`);
-  let source = fs.readFileSync(file, 'utf8');
-  let changed = false;
-  for (const { label, find, replace } of patches) {
-    if (source.includes(replace)) continue;
-    const index = source.indexOf(find);
-    if (index === -1) throw new Error(`Não encontrei o bloco de ${label} em ${relativePath}.`);
-    source = source.slice(0, index) + replace + source.slice(index + find.length);
-    changed = true;
+  return { file, source: fs.readFileSync(file, 'utf8') };
+}
+
+function replaceBlock(source, startMarker, endMarker, replacement, label, relativePath) {
+  const start = source.indexOf(startMarker);
+  if (start === -1) throw new Error(`Não encontrei o início de ${label} em ${relativePath}.`);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  if (end === -1) throw new Error(`Não encontrei o fim de ${label} em ${relativePath}.`);
+  return source.slice(0, start) + replacement + source.slice(end);
+}
+
+function ensureImport(source, anchor, importLine, relativePath) {
+  if (source.includes(importLine)) return source;
+  const index = source.indexOf(anchor);
+  if (index === -1) throw new Error(`Não encontrei a âncora de importação em ${relativePath}.`);
+  return source.slice(0, index + anchor.length) + importLine + source.slice(index + anchor.length);
+}
+
+const appPath = 'apps/mobile/App.tsx';
+const app = readFile(appPath);
+let appSource = ensureImport(
+  app.source,
+  "import { connectRealtime, disconnectRealtime, subscribeRealtime } from './src/api/realtime';\n",
+  "import { apiAcceptProposal } from './src/api/client';\n",
+  appPath,
+);
+
+const appAcceptStart = '  async function acceptProposal(proposal: Proposal) {';
+const appAcceptEnd = '  async function submitProposal(demand: Demand) {';
+const appAcceptReplacement = `  async function acceptProposal(proposal: Proposal) {
+    if (!user || proposal.status !== 'pending') return;
+    const demand = demands.find((item) => item.id === proposal.demandId);
+    if (!demand || demand.requesterId !== user.id) return;
+
+    const result = await apiAcceptProposal(proposal.id, user.id);
+    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.proposal : item);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
+    setProposals(nextProposals);
+    setDemands(nextDemands);
+    await saveProposals(nextProposals);
+    await saveDemands(nextDemands);
+
+    const conversation = await ensureConversation(result.demand.id, result.proposal.providerId);
+    if (conversation) {
+      setActiveConversation(conversation);
+      setScreen('negotiation');
+    }
   }
-  if (changed) fs.writeFileSync(file, source, 'utf8');
-  return changed;
-}
+`;
+appSource = replaceBlock(appSource, appAcceptStart, appAcceptEnd, appAcceptReplacement, 'aceite da proposta', appPath);
+if (appSource !== app.source) fs.writeFileSync(app.file, appSource, 'utf8');
 
-const appChanged = patchFile('apps/mobile/App.tsx', [
-  {
-    label: 'importação da API de propostas',
-    find: "import { connectRealtime, disconnectRealtime, subscribeRealtime } from './src/api/realtime';\n",
-    replace: "import { connectRealtime, disconnectRealtime, subscribeRealtime } from './src/api/realtime';\nimport { apiAcceptProposal } from './src/api/client';\n",
-  },
-  {
-    label: 'aceite da proposta',
-    find: `  async function acceptProposal(proposal: Proposal) {\n    if (!user || proposal.status !== 'pending') return;\n    const demand = demands.find((item) => item.id === proposal.demandId);\n    if (!demand || demand.requesterId !== user.id) return;\n    const now = new Date().toISOString();\n    const nextProposals = proposals.map((item) => item.id === proposal.id ? { ...item, customerConfirmedAt: item.customerConfirmedAt ?? now } : item);\n    const nextDemands = demands.map((item) => item.id === demand.id ? { ...item, status: 'negotiating' as const, updatedAt: now } : item);\n    setProposals(nextProposals);\n    setDemands(nextDemands);\n    await saveProposals(nextProposals);\n    await saveDemands(nextDemands);\n    const conversation = await ensureConversation(demand.id, proposal.providerId);\n    if (conversation) {\n      setActiveConversation(conversation);\n      setScreen('negotiation');\n    }\n  }\n`,
-    replace: `  async function acceptProposal(proposal: Proposal) {\n    if (!user || proposal.status !== 'pending') return;\n    const demand = demands.find((item) => item.id === proposal.demandId);\n    if (!demand || demand.requesterId !== user.id) return;\n\n    const result = await apiAcceptProposal(proposal.id, user.id);\n    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.proposal : item);\n    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);\n    setProposals(nextProposals);\n    setDemands(nextDemands);\n    await saveProposals(nextProposals);\n    await saveDemands(nextDemands);\n\n    const conversation = await ensureConversation(result.demand.id, result.proposal.providerId);\n    if (conversation) {\n      setActiveConversation(conversation);\n      setScreen('negotiation');\n    }\n  }\n`,
-  },
-]);
+const negotiationPath = 'apps/mobile/src/screens/NegotiationChatScreen.tsx';
+const negotiation = readFile(negotiationPath);
+let negotiationSource = ensureImport(
+  negotiation.source,
+  "import { subscribeRealtime } from '../api/realtime';\n",
+  "import { apiAcceptProposal, apiConfirmProposal } from '../api/client';\n",
+  negotiationPath,
+);
 
-const negotiationChanged = patchFile('apps/mobile/src/screens/NegotiationChatScreen.tsx', [
-  {
-    label: 'importação da API de propostas',
-    find: "import { subscribeRealtime } from '../api/realtime';\n",
-    replace: "import { subscribeRealtime } from '../api/realtime';\nimport { apiAcceptProposal, apiConfirmProposal } from '../api/client';\n",
-  },
-  {
-    label: 'aceite dentro da negociação',
-    find: `  async function acceptProposal(proposal: Proposal) {`,
-    replace: `  async function acceptProposal(proposal: Proposal) {\n    if (proposal.status !== 'pending') throw new Error('Esta oferta não está mais disponível para aceite.');\n    const offerSide = proposal.offeredBy ?? 'provider';\n    const recipientId = offerSide === 'provider' ? effectiveConversation.customerId : effectiveConversation.providerId;\n    if (user.id !== recipientId) throw new Error('Somente quem recebeu a oferta pode aceitá-la.');\n\n    const result = offerSide === 'provider' && user.id === effectiveConversation.customerId\n      ? await apiAcceptProposal(proposal.id, user.id)\n      : await apiConfirmProposal(proposal.id, user.id);\n\n    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.proposal : item);\n    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);\n    await saveProposals(nextProposals);\n    await saveDemands(nextDemands);\n    setProposals(nextProposals);\n    setDemands(nextDemands);\n  }\n\n  async function confirmAgreement(proposal: Proposal) {\n    if (proposal.status !== 'pending' && proposal.status !== 'accepted') throw new Error('A oferta ainda não pode ser confirmada.');\n    if (user.id !== effectiveConversation.customerId && user.id !== effectiveConversation.providerId) throw new Error('Usuário não participa desta negociação.');\n\n    const result = await apiConfirmProposal(proposal.id, user.id);\n    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.proposal : item);\n    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);\n    await saveProposals(nextProposals);\n    await saveDemands(nextDemands);\n    setProposals(nextProposals);\n    setDemands(nextDemands);\n  }\n\n  /* ORIGINAL_CONFIRM_AGREEMENT_MOVED */\n`,
-  },
-  {
-    label: 'bloco antigo de confirmação',
-    find: `  async function confirmAgreement(proposal: Proposal) {`,
-    replace: `  /* REMOVED_OLD_CONFIRM_AGREEMENT */\n`,
-  },
-]);
+const negotiationAcceptStart = '  async function acceptProposal(proposal: Proposal) {';
+const negotiationAcceptEnd = '  async function confirmAgreement(proposal: Proposal) {';
+const negotiationAcceptReplacement = `  async function acceptProposal(proposal: Proposal) {
+    if (proposal.status !== 'pending') throw new Error('Esta oferta não está mais disponível para aceite.');
+    const offerSide = proposal.offeredBy ?? 'provider';
+    const recipientId = offerSide === 'provider' ? effectiveConversation.customerId : effectiveConversation.providerId;
+    if (user.id !== recipientId) throw new Error('Somente quem recebeu a oferta pode aceitá-la.');
 
-if (!appChanged && !negotiationChanged) {
-  console.log('Correção já aplicada. Nenhuma alteração necessária.');
-  process.exit(0);
-}
+    const result = offerSide === 'provider' && user.id === effectiveConversation.customerId
+      ? await apiAcceptProposal(proposal.id, user.id)
+      : await apiConfirmProposal(proposal.id, user.id);
 
-console.log('OK: aceite/confirmação agora passam pelo servidor e o resultado oficial é propagado ao cache local.');
+    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.proposal : item);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
+    await saveProposals(nextProposals);
+    await saveDemands(nextDemands);
+    setProposals(nextProposals);
+    setDemands(nextDemands);
+  }
+
+`;
+negotiationSource = replaceBlock(negotiationSource, negotiationAcceptStart, negotiationAcceptEnd, negotiationAcceptReplacement, 'aceite dentro da negociação', negotiationPath);
+
+const negotiationConfirmStart = '  async function confirmAgreement(proposal: Proposal) {';
+const negotiationConfirmEnd = '  async function sendCounterProposal(proposal: Proposal, amount: number, message?: string) {';
+const negotiationConfirmReplacement = `  async function confirmAgreement(proposal: Proposal) {
+    if (proposal.status !== 'pending' && proposal.status !== 'accepted') throw new Error('A oferta ainda não pode ser confirmada.');
+    if (user.id !== effectiveConversation.customerId && user.id !== effectiveConversation.providerId) throw new Error('Usuário não participa desta negociação.');
+
+    const result = await apiConfirmProposal(proposal.id, user.id);
+    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.proposal : item);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
+    await saveProposals(nextProposals);
+    await saveDemands(nextDemands);
+    setProposals(nextProposals);
+    setDemands(nextDemands);
+  }
+
+`;
+negotiationSource = replaceBlock(negotiationSource, negotiationConfirmStart, negotiationConfirmEnd, negotiationConfirmReplacement, 'confirmação do acordo', negotiationPath);
+if (negotiationSource !== negotiation.source) fs.writeFileSync(negotiation.file, negotiationSource, 'utf8');
+
+console.log('OK: aceite e confirmação agora usam o backend como fonte oficial e atualizam o cache com a resposta do servidor.');
