@@ -28,6 +28,11 @@
         }
       ]
     ],
+    "extra": {
+      "eas": {
+        "projectId": "ca3b9f0a-42bf-4da1-ae11-f9479805afc1"
+      }
+    },
     "experiments": {
       "autolinkingModuleResolution": true
     }
