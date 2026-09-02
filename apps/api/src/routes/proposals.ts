@@ -51,6 +51,20 @@ async function persistDemand(demand: Demand) {
   await db.collection<Demand>(demandsCollection).replaceOne({ id: demand.id }, demand, { upsert: true });
 }
 
+function mergeProposal(existing: Proposal | undefined, incoming: Proposal): Proposal {
+  if (!existing) return normalizeProposal(incoming);
+  const merged: Proposal = {
+    ...existing,
+    ...incoming,
+    customerConfirmedAt: incoming.customerConfirmedAt ?? existing.customerConfirmedAt,
+    providerConfirmedAt: incoming.providerConfirmedAt ?? existing.providerConfirmedAt,
+    parentProposalId: incoming.parentProposalId ?? existing.parentProposalId,
+    offeredBy: incoming.offeredBy ?? existing.offeredBy,
+    version: Math.max(existing.version ?? 1, incoming.version ?? 1),
+  };
+  return normalizeProposal(merged);
+}
+
 export async function registerProposalRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { demandId?: string } }>('/api/v1/proposals', async (request) => listProposals(request.query.demandId));
 
@@ -76,7 +90,7 @@ export async function registerProposalRoutes(app: FastifyInstance) {
     const proposals = Array.isArray(request.body?.proposals) ? request.body.proposals : [];
     for (const incoming of proposals) {
       const before = (await listProposals()).find((item) => item.id === incoming.id);
-      const normalized = normalizeProposal(incoming);
+      const normalized = mergeProposal(before, incoming);
       await persistProposal(normalized);
       const demand = await findDemand(normalized.demandId);
       if (!demand) continue;
@@ -86,21 +100,12 @@ export async function registerProposalRoutes(app: FastifyInstance) {
       const actorUserId = normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId;
       broadcastRealtime({ type: before ? 'proposal.updated' : 'proposal.created', demandId: normalized.demandId, proposalId: normalized.id, actorUserId, at: nextDemand.updatedAt });
       broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId, at: nextDemand.updatedAt });
-
       if (!before) {
         const recipientId = normalized.offeredBy === 'customer' ? normalized.providerId : demand.requesterId;
-        await sendPushToUsers([recipientId], {
-          title: normalized.offeredBy === 'customer' ? '↔ Nova contraproposta' : '💰 Nova proposta recebida',
-          body: `${normalized.amount.toFixed(2).replace('.', ',')} para ${demand.title}`,
-          data: { type: 'proposal.created', demandId: demand.id, proposalId: normalized.id },
-        });
+        await sendPushToUsers([recipientId], { title: normalized.offeredBy === 'customer' ? '↔ Nova contraproposta' : '💰 Nova proposta recebida', body: `${normalized.amount.toFixed(2).replace('.', ',')} para ${demand.title}`, data: { type: 'proposal.created', demandId: demand.id, proposalId: normalized.id } });
       } else if (normalized.customerConfirmedAt !== before.customerConfirmedAt || normalized.providerConfirmedAt !== before.providerConfirmedAt) {
         const recipientId = normalized.offeredBy === 'customer' ? normalized.providerId : demand.requesterId;
-        await sendPushToUsers([recipientId], {
-          title: bothConfirmed ? '✅ Serviço confirmado' : '🔔 Confirmação recebida',
-          body: bothConfirmed ? `O serviço “${demand.title}” foi confirmado pelos dois lados.` : `A outra parte confirmou a proposta de ${normalized.amount.toFixed(2).replace('.', ',')}.`,
-          data: { type: bothConfirmed ? 'agreement.confirmed' : 'proposal.confirmed', demandId: demand.id, proposalId: normalized.id },
-        });
+        await sendPushToUsers([recipientId], { title: bothConfirmed ? '✅ Serviço confirmado' : '🔔 Confirmação recebida', body: bothConfirmed ? `O serviço “${demand.title}” foi confirmado pelos dois lados.` : `A outra parte confirmou a proposta de ${normalized.amount.toFixed(2).replace('.', ',')}.`, data: { type: bothConfirmed ? 'agreement.confirmed' : 'proposal.confirmed', demandId: demand.id, proposalId: normalized.id } });
       }
     }
     return reply.send({ ok: true, count: proposals.length });
@@ -125,7 +130,6 @@ async function confirmProposal(id: string, userId: string | undefined, reply: an
   if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });
   if (userId !== demand.requesterId && userId !== proposal.providerId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta negociação.' });
   if (!['pending', 'accepted'].includes(proposal.status)) return reply.code(409).send({ error: 'PROPOSAL_UNAVAILABLE', message: 'Esta proposta não está disponível para confirmação.' });
-
   const now = new Date().toISOString();
   const nextProposal: Proposal = userId === demand.requesterId ? { ...proposal, customerConfirmedAt: proposal.customerConfirmedAt ?? now } : { ...proposal, providerConfirmedAt: proposal.providerConfirmedAt ?? now };
   const normalized = normalizeProposal(nextProposal);
