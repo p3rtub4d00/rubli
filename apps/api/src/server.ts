@@ -3,7 +3,6 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import websocket from '@fastify/websocket';
-import { MongoClient } from 'mongodb';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDemandRoutes } from './routes/demands.js';
 import { registerProposalRoutes } from './routes/proposals.js';
@@ -11,6 +10,7 @@ import { registerChatRoutes } from './routes/chat.js';
 import { registerNearbyRoutes } from './routes/nearby.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
 import { attachRealtimeClient } from './realtime.js';
+import { closeDatabase, ensureDatabaseIndexes, getDatabase } from './store/database.js';
 
 const app = Fastify({ logger: true });
 
@@ -29,11 +29,12 @@ app.get('/api/v1/realtime', { websocket: true }, (socket) => {
 });
 
 const mongoUri = process.env.MONGODB_URI;
-let mongoClient: MongoClient | undefined;
+let mongoConnected = false;
 
 if (mongoUri) {
-  mongoClient = new MongoClient(mongoUri);
-  await mongoClient.connect();
+  await getDatabase();
+  await ensureDatabaseIndexes();
+  mongoConnected = true;
   app.log.info('MongoDB connected');
 } else {
   app.log.warn('MONGODB_URI not configured; running in temporary in-memory mode');
@@ -43,7 +44,7 @@ app.get('/health', async () => ({
   ok: true,
   service: 'rubli-api',
   version: '0.1.0',
-  persistence: mongoClient ? 'mongodb' : 'memory',
+  persistence: mongoConnected ? 'mongodb' : 'memory',
   realtime: true,
   push: true,
 }));
@@ -51,7 +52,7 @@ app.get('/health', async () => ({
 app.get('/api/v1', async () => ({
   name: 'Rubli API',
   message: 'Quem precisa, encontra quem resolve.',
-  mode: mongoClient ? 'online' : 'development-offline',
+  mode: mongoConnected ? 'online' : 'development-offline',
   realtime: true,
   push: true,
 }));
@@ -68,7 +69,7 @@ try {
 
 const shutdown = async () => {
   await app.close();
-  await mongoClient?.close();
+  await closeDatabase();
   process.exit(0);
 };
 

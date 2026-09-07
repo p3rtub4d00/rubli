@@ -1,5 +1,6 @@
 import { getUser } from '../storage/localStore';
 import { registerForPushNotifications } from '../notifications/push';
+import { API_URL } from './client';
 
 export type RealtimeEvent = {
   type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created';
@@ -12,8 +13,7 @@ export type RealtimeEvent = {
 
 type Listener = (event: RealtimeEvent) => void;
 
-const API_HTTP = process.env.EXPO_PUBLIC_RUBLI_API_URL?.trim().replace(/\/$/, '') || 'http://192.168.100.85:3000';
-const API_WS = API_HTTP.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+const API_WS = API_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
 const URL = `${API_WS}/api/v1/realtime`;
 
 let socket: WebSocket | null = null;
@@ -28,6 +28,7 @@ function scheduleReconnect() {
 
 export function connectRealtime(userId: string) {
   connectUserId = userId;
+  if (!API_WS) return;
   getUser().then((storedUser) => {
     if (storedUser?.id === userId) registerForPushNotifications(storedUser).catch(() => undefined);
   }).catch(() => undefined);
@@ -59,5 +60,5 @@ export function disconnectRealtime() {
 
 export function subscribeRealtime(listener: Listener) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => { listeners.delete(listener); };
 }

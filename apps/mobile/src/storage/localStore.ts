@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
-import { apiCreateConversation, apiCreateDemand, apiCreateMessage, apiListConversations, apiListDemands, apiListMessages, apiListProposals, apiSyncProposals } from '../api/client';
+import { apiCreateConversation, apiCreateMessage, apiListConversations, apiListDemands, apiListMessages, apiListProposals } from '../api/client';
 
 const KEYS = {
   user: '@rubli/user', users: '@rubli/users', demands: '@rubli/demands', proposals: '@rubli/proposals', conversations: '@rubli/conversations', messages: '@rubli/messages', ratings: '@rubli/ratings',
@@ -34,7 +34,6 @@ export async function saveDemands(demands: Demand[]) {
   await archiveDemandRecords(demands);
   const active = demands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
   await writeJson(KEYS.demands, active);
-  try { await Promise.all(demands.map((demand) => apiCreateDemand(demand))); } catch {}
 }
 export async function getDemands(): Promise<Demand[]> {
   const localDemands = await readJson<Demand[]>(KEYS.demands, []);
@@ -52,7 +51,6 @@ export async function getDemands(): Promise<Demand[]> {
 
 export async function saveProposals(proposals: Proposal[]) {
   await writeJson(KEYS.proposals, proposals);
-  try { await apiSyncProposals(proposals); } catch {}
 }
 export async function getProposals(): Promise<Proposal[]> {
   const localProposals = await readJson<Proposal[]>(KEYS.proposals, []);

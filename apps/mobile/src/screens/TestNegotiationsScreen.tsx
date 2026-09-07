@@ -12,6 +12,7 @@ import {
 import { getRatings } from '../profile/profileStore';
 import { ChatScreen } from './ChatScreen';
 import { PublicProfileScreen } from './PublicProfileScreen';
+import { apiAcceptProposal, apiConfirmProposal, apiCounterProposal, apiServiceAction } from '../api/client';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
@@ -99,29 +100,13 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
 
   async function acceptProposal(proposal: Proposal) {
     const demand = demands.find((item) => item.id === proposal.demandId);
-    if (!demand || demand.requesterId !== user.id || proposal.status !== 'pending') {
+    if (!demand || proposal.status !== 'pending') {
       throw new Error('Proposta inválida.');
     }
 
-    const now = new Date().toISOString();
-    const nextProposals = proposals.map((item) => {
-      if (item.demandId !== demand.id) return item;
-      if (item.id === proposal.id) {
-        return { ...item, status: 'accepted' as const, customerConfirmedAt: now };
-      }
-      return item.status === 'pending' ? { ...item, status: 'rejected' as const } : item;
-    });
-
-    const nextDemands = demands.map((item) =>
-      item.id === demand.id
-        ? {
-            ...item,
-            status: 'negotiating' as const,
-            acceptedProviderId: proposal.providerId,
-            updatedAt: now,
-          }
-        : item
-    );
+    const result = await apiAcceptProposal(proposal.id, user.id);
+    const nextProposals = proposals.map((item) => item.id === result.proposal.id ? result.proposal : item);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
 
     await saveProposals(nextProposals);
     await saveDemands(nextDemands);
@@ -130,31 +115,11 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
   }
 
   async function confirmProvider(proposal: Proposal) {
-    if (
-      user.id !== proposal.providerId ||
-      proposal.status !== 'accepted' ||
-      !proposal.customerConfirmedAt
-    ) {
-      throw new Error('A proposta ainda não foi confirmada pelo cliente.');
-    }
+    if (proposal.status !== 'pending' && proposal.status !== 'accepted') throw new Error('A proposta não pode ser confirmada.');
 
-    const now = new Date().toISOString();
-    const nextProposals = proposals.map((item) =>
-      item.id === proposal.id
-        ? { ...item, providerConfirmedAt: now }
-        : item
-    );
-
-    const nextDemands = demands.map((item) =>
-      item.id === proposal.demandId
-        ? {
-            ...item,
-            status: 'accepted' as const,
-            acceptedProviderId: proposal.providerId,
-            updatedAt: now,
-          }
-        : item
-    );
+    const result = await apiConfirmProposal(proposal.id, user.id);
+    const nextProposals = proposals.map((item) => item.id === result.proposal.id ? result.proposal : item);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
 
     await saveProposals(nextProposals);
     await saveDemands(nextDemands);
@@ -183,40 +148,10 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
       throw new Error('Sem permissão.');
     }
 
-    const now = new Date().toISOString();
-    const version =
-      Math.max(
-        0,
-        ...proposals
-          .filter((item) => item.demandId === demand.id)
-          .map((item) => item.version ?? 1)
-      ) + 1;
-
-    const nextProposal: Proposal = {
-      id: makeId('pro'),
-      demandId: demand.id,
-      providerId: proposal.providerId,
-      amount: Math.round(amount * 100) / 100,
-      message: message?.trim() || undefined,
-      status: 'pending',
-      version,
-      parentProposalId: proposal.id,
-      offeredBy: user.id === demand.requesterId ? 'customer' : 'provider',
-      createdAt: now,
-    };
-
-    const nextProposals = proposals.map((item) =>
-      item.id === proposal.id
-        ? { ...item, status: 'superseded' as const }
-        : item
-    );
-    nextProposals.unshift(nextProposal);
-
-    const nextDemands = demands.map((item) =>
-      item.id === demand.id
-        ? { ...item, status: 'negotiating' as const, updatedAt: now }
-        : item
-    );
+    const result = await apiCounterProposal(proposal.id, { userId: user.id, amount, message });
+    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.supersededProposal : item);
+    nextProposals.unshift(result.proposal);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
 
     await saveProposals(nextProposals);
     await saveDemands(nextDemands);
@@ -224,46 +159,12 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
     setDemands(nextDemands);
   }
 
-  async function startService(demand: Demand) {
-    if (user.id !== demand.acceptedProviderId || demand.status !== 'accepted') {
-      throw new Error('Somente o prestador contratado pode iniciar.');
-    }
-
-    const now = new Date().toISOString();
-    const nextDemands = demands.map((item) =>
-      item.id === demand.id
-        ? { ...item, status: 'in_progress' as const, startedAt: now, updatedAt: now }
-        : item
-    );
-
-    await saveDemands(nextDemands);
-    setDemands(nextDemands);
-  }
-
-  async function completeService(demand: Demand) {
-    if (
-      user.id !== demand.acceptedProviderId ||
-      demand.status !== 'in_progress'
-    ) {
-      throw new Error('Somente o prestador contratado pode concluir.');
-    }
-
-    const now = new Date().toISOString();
-    const completedDemand = {
-      ...demand,
-      status: 'completed' as const,
-      completedAt: now,
-      updatedAt: now,
-    };
-
-    const nextDemands = demands.map((item) =>
-      item.id === demand.id ? completedDemand : item
-    );
-
-    // saveDemands archives completed demands and removes them from active storage.
+  async function updateServiceStage(demand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
+    const remoteAction = action === 'request_confirmation' ? 'request_completion' : action;
+    const updated = await apiServiceAction(demand.id, { userId: user.id, action: remoteAction });
+    const nextDemands = demands.map((item) => item.id === updated.id ? updated : item);
     await saveDemands(nextDemands);
     setDemands(nextDemands.filter(isOperationalDemand));
-    setActiveConversation(null);
   }
 
   if (activeConversation) {
@@ -291,8 +192,7 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
         onAcceptProposal={currentProposal ? acceptProposal : undefined}
         onConfirmAgreement={currentProposal ? confirmProvider : undefined}
         onCounterProposal={currentProposal ? counterProposal : undefined}
-        onStartService={demand ? startService : undefined}
-        onCompleteService={demand ? completeService : undefined}
+        onServiceAction={demand ? updateServiceStage : undefined}
         onBack={() => {
           setActiveConversation(null);
           reload().catch(() => undefined);

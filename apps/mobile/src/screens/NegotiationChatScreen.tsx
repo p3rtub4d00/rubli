@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
-import { getDemands, getProposals, getRatings, getUsers, saveDemands, saveProposals } from '../storage/localStore';
+import { getRatings, getUsers, saveDemands, saveProposals } from '../storage/localStore';
 import { subscribeRealtime } from '../api/realtime';
+import { apiAcceptProposal, apiConfirmProposal, apiCounterProposal, apiCreateProposal, apiListDemands, apiListProposals, apiServiceAction } from '../api/client';
 import { ChatScreen } from './ChatScreen';
 
 interface Props { user: User; conversation: Conversation; onBack: () => void; }
@@ -21,20 +22,21 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
   const [sendingFirst, setSendingFirst] = useState(false);
 
   async function reload() {
-    const [nextDemands, nextProposals, users, ratings] = await Promise.all([getDemands(), getProposals(), getUsers(), getRatings()]);
-    setDemands(nextDemands); setProposals(nextProposals);
+    const [nextDemands, nextProposals, users, ratings] = await Promise.all([apiListDemands(), apiListProposals(), getUsers(), getRatings()]);
+    const activeDemands = nextDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
+    setDemands(activeDemands);
+    setProposals(nextProposals);
     const providerId = conversation.providerId;
     setProviderProfile(users.find((item) => item.id === providerId) ?? null);
     setProviderRatings(ratings.filter((item) => item.providerId === providerId));
   }
-
   useEffect(() => {
     let active = true;
     const run = async () => { try { await reload(); } catch { if (active) Alert.alert('Erro', 'Não foi possível carregar a negociação.'); } };
     run();
-    const interval = setInterval(() => { reload().catch(() => undefined); }, 5000);
+    const interval = setInterval(() => { reload().catch(() => undefined); }, 1500);
     const unsubscribe = subscribeRealtime((event) => {
-      if (!event.demandId || event.demandId === conversation.demandId || event.proposalId) reload().catch(() => undefined);
+      if (event.demandId === conversation.demandId || event.proposalId) reload().catch(() => undefined);
     });
     return () => { active = false; clearInterval(interval); unsubscribe(); };
   }, [conversation.id, conversation.demandId, conversation.providerId]);
@@ -50,12 +52,13 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     if (!demand || user.id !== conversation.providerId || currentProposal || sendingFirst) return;
     const amount = Number(firstAmount.replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) return Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
-    const now = new Date().toISOString();
-    const proposal: Proposal = { id: `pro_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, demandId: demand.id, providerId: conversation.providerId, amount: Math.round(amount * 100) / 100, message: firstMessage.trim() || undefined, status: 'pending', version: 1, offeredBy: 'provider', createdAt: now };
-    const nextProposals = [proposal, ...proposals];
-    const nextDemands = demands.map((item) => item.id === demand.id ? { ...item, status: 'negotiating' as const, updatedAt: now } : item);
     setSendingFirst(true);
-    try { await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands); setFirstAmount(''); setFirstMessage(''); }
+    try {
+      const proposal = await apiCreateProposal({ demandId: demand.id, providerId: conversation.providerId, amount, message: firstMessage.trim() || undefined });
+      const nextProposals = [proposal, ...proposals.filter((item) => item.id !== proposal.id)];
+      const nextDemands = demands.map((item) => item.id === demand.id ? { ...item, status: 'negotiating' as const, updatedAt: proposal.createdAt } : item);
+      await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands); setFirstAmount(''); setFirstMessage('');
+    }
     catch { Alert.alert('Erro', 'Não foi possível enviar sua proposta.'); }
     finally { setSendingFirst(false); }
   }
@@ -65,25 +68,26 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     const offerSide = proposal.offeredBy ?? 'provider';
     const recipientId = offerSide === 'provider' ? effectiveConversation.customerId : effectiveConversation.providerId;
     if (user.id !== recipientId) throw new Error('Somente quem recebeu a oferta pode aceitá-la.');
-    const now = new Date().toISOString();
-    const nextProposals = proposals.map((item) => item.id === proposal.id
-      ? { ...item, customerConfirmedAt: user.id === effectiveConversation.customerId ? (item.customerConfirmedAt ?? now) : item.customerConfirmedAt, providerConfirmedAt: user.id === effectiveConversation.providerId ? (item.providerConfirmedAt ?? now) : item.providerConfirmedAt }
-      : item);
-    const updated = nextProposals.find((item) => item.id === proposal.id)!;
-    const bothConfirmed = Boolean(updated.customerConfirmedAt && updated.providerConfirmedAt);
-    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? { ...item, status: bothConfirmed ? 'accepted' as const : 'negotiating' as const, acceptedProviderId: bothConfirmed ? proposal.providerId : item.acceptedProviderId, updatedAt: now } : item);
-    await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands);
+
+    const result = offerSide === 'provider' && user.id === effectiveConversation.customerId
+      ? await apiAcceptProposal(proposal.id, user.id)
+      : await apiConfirmProposal(proposal.id, user.id);
+
+    const nextProposals = proposals.map((item) => item.id === result.proposal.id ? result.proposal : item);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
+    await saveProposals(nextProposals); await saveDemands(nextDemands);
+    setProposals(nextProposals); setDemands(nextDemands);
   }
 
   async function confirmAgreement(proposal: Proposal) {
     if (proposal.status !== 'pending' && proposal.status !== 'accepted') throw new Error('A oferta ainda não pode ser confirmada.');
     if (user.id !== effectiveConversation.customerId && user.id !== effectiveConversation.providerId) throw new Error('Usuário não participa desta negociação.');
-    const now = new Date().toISOString();
-    const nextProposals = proposals.map((item) => item.id !== proposal.id ? item : user.id === effectiveConversation.customerId ? { ...item, customerConfirmedAt: item.customerConfirmedAt ?? now } : { ...item, providerConfirmedAt: item.providerConfirmedAt ?? now });
-    const updatedProposal = nextProposals.find((item) => item.id === proposal.id)!;
-    const bothConfirmed = Boolean(updatedProposal.customerConfirmedAt && updatedProposal.providerConfirmedAt);
-    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? { ...item, status: bothConfirmed ? 'accepted' as const : 'negotiating' as const, acceptedProviderId: bothConfirmed ? proposal.providerId : item.acceptedProviderId, updatedAt: now } : item);
-    await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands);
+
+    const result = await apiConfirmProposal(proposal.id, user.id);
+    const nextProposals = proposals.map((item) => item.id === result.proposal.id ? result.proposal : item);
+    const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
+    await saveProposals(nextProposals); await saveDemands(nextDemands);
+    setProposals(nextProposals); setDemands(nextDemands);
   }
 
   async function sendCounterProposal(proposal: Proposal, amount: number, message?: string) {
@@ -93,27 +97,16 @@ export function NegotiationChatScreen({ user, conversation, onBack }: Props) {
     const offerSide = proposal.offeredBy ?? 'provider';
     const authorId = offerSide === 'provider' ? effectiveConversation.providerId : effectiveConversation.customerId;
     if (user.id === authorId) throw new Error('Quem enviou a oferta atual deve aguardar a resposta do outro lado.');
-    const now = new Date().toISOString();
-    const version = Math.max(0, ...proposals.filter((item) => item.demandId === effectiveConversation.demandId).map((item) => item.version ?? 1)) + 1;
-    const counter: Proposal = { id: `pro_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, demandId: effectiveConversation.demandId, providerId: effectiveConversation.providerId, amount, message, status: 'pending', version, parentProposalId: proposal.id, offeredBy: user.id === effectiveConversation.customerId ? 'customer' : 'provider', createdAt: now };
-    const nextProposals = proposals.map((item) => item.id === proposal.id ? { ...item, status: 'superseded' as const } : item); nextProposals.unshift(counter);
-    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? { ...item, status: 'negotiating' as const, updatedAt: now } : item);
+    const result = await apiCounterProposal(proposal.id, { userId: user.id, amount, message });
+    const nextProposals = proposals.map((item) => item.id === proposal.id ? result.supersededProposal : item); nextProposals.unshift(result.proposal);
+    const nextDemands = demands.map((item) => item.id === effectiveConversation.demandId ? result.demand : item);
     await saveProposals(nextProposals); await saveDemands(nextDemands); setProposals(nextProposals); setDemands(nextDemands);
   }
 
   async function updateServiceStage(nextDemand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
-    const now = new Date().toISOString(); const isProvider = user.id === nextDemand.acceptedProviderId; const isCustomer = user.id === effectiveConversation.customerId;
-    if (!isProvider && !isCustomer) throw new Error('Usuário não participa deste serviço.');
-    const acceptedProposal = proposals.find((item) => item.demandId === nextDemand.id && item.providerId === nextDemand.acceptedProviderId && item.status === 'accepted');
-    const bothConfirmed = Boolean(acceptedProposal?.customerConfirmedAt && acceptedProposal?.providerConfirmedAt);
-    if (!bothConfirmed) throw new Error('O serviço só pode iniciar após a confirmação dos dois lados.');
-    let status: Demand['status'] = nextDemand.status;
-    if (action === 'en_route') { if (!isProvider || nextDemand.status !== 'accepted') throw new Error('Somente o prestador contratado pode informar que está a caminho.'); status = 'provider_en_route'; }
-    if (action === 'arrived') { if (!isProvider || nextDemand.status !== 'provider_en_route') throw new Error('O prestador deve estar a caminho para registrar a chegada.'); status = 'provider_arrived'; }
-    if (action === 'start') { if (!isProvider || nextDemand.status !== 'provider_arrived') throw new Error('Registre a chegada antes de iniciar o serviço.'); status = 'in_progress'; }
-    if (action === 'request_confirmation') { if (!isProvider || nextDemand.status !== 'in_progress') throw new Error('Somente o prestador pode solicitar a confirmação da conclusão.'); status = 'awaiting_customer_confirmation'; }
-    if (action === 'confirm_completion') { if (!isCustomer || nextDemand.status !== 'awaiting_customer_confirmation') throw new Error('Somente o cliente pode confirmar a conclusão.'); status = 'completed'; }
-    const next = demands.map((item) => item.id === nextDemand.id ? { ...item, status, acceptedProviderId: item.acceptedProviderId ?? acceptedProviderId, ...(action === 'en_route' ? { enRouteAt: now } : {}), ...(action === 'arrived' ? { arrivedAt: now } : {}), ...(action === 'start' ? { startedAt: now } : {}), ...(action === 'request_confirmation' ? { completionRequestedAt: now } : {}), ...(action === 'confirm_completion' ? { customerConfirmedCompletionAt: now, completedAt: now } : {}), updatedAt: now } : item);
+    const remoteAction = action === 'request_confirmation' ? 'request_completion' : action;
+    const updatedDemand = await apiServiceAction(nextDemand.id, { userId: user.id, action: remoteAction });
+    const next = demands.map((item) => item.id === nextDemand.id ? updatedDemand : item);
     await saveDemands(next); setDemands(next);
   }
 

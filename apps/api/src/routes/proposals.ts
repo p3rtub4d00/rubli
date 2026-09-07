@@ -60,6 +60,7 @@ export async function registerProposalRoutes(app: FastifyInstance) {
     if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });
     if (!body.providerId || !Number.isFinite(body.amount) || body.amount <= 0) return reply.code(400).send({ error: 'INVALID_PROPOSAL', message: 'Informe o prestador e um valor maior que zero.' });
     if (demand.status !== 'open' && demand.status !== 'negotiating') return reply.code(409).send({ error: 'DEMAND_UNAVAILABLE', message: 'Esta demanda não está disponível para novas propostas.' });
+    if (demand.requesterId === body.providerId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'O cliente não pode enviar proposta para a própria demanda.' });
     const existing = await listProposals(body.demandId);
     if (existing.some((item) => item.providerId === body.providerId && item.status === 'pending')) return reply.code(409).send({ error: 'DUPLICATE_PROPOSAL', message: 'Você já enviou uma proposta pendente para esta demanda.' });
     const proposal: Proposal = { id: `pro_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, demandId: body.demandId, providerId: body.providerId, amount: Math.round(body.amount * 100) / 100, message: body.message?.trim() || undefined, status: 'pending', offeredBy: 'provider', version: 1, createdAt: new Date().toISOString() };
@@ -72,52 +73,49 @@ export async function registerProposalRoutes(app: FastifyInstance) {
     return reply.code(201).send(proposal);
   });
 
-  app.post<{ Body: { proposals: Proposal[] } }>('/api/v1/proposals/sync', async (request, reply) => {
-    const proposals = Array.isArray(request.body?.proposals) ? request.body.proposals : [];
-    for (const incoming of proposals) {
-      const before = (await listProposals()).find((item) => item.id === incoming.id);
-      const normalized = normalizeProposal(incoming);
-      await persistProposal(normalized);
-      const demand = await findDemand(normalized.demandId);
-      if (!demand) continue;
-      const bothConfirmed = Boolean(normalized.customerConfirmedAt && normalized.providerConfirmedAt);
-      const nextDemand: Demand = bothConfirmed ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: new Date().toISOString() } : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: new Date().toISOString() };
-      await persistDemand(nextDemand);
-      const actorUserId = normalized.offeredBy === 'customer' ? demand.requesterId : normalized.providerId;
-      broadcastRealtime({ type: before ? 'proposal.updated' : 'proposal.created', demandId: normalized.demandId, proposalId: normalized.id, actorUserId, at: nextDemand.updatedAt });
-      broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId, at: nextDemand.updatedAt });
+  // Snapshots locais nunca podem decidir acordo. A fila offline usa somente comandos idempotentes.
+  app.post('/api/v1/proposals/sync', async (_request, reply) => reply.code(410).send({
+    error: 'SYNC_DISABLED',
+    message: 'Sincronização de snapshots de proposta foi desativada. Use os endpoints de proposta, contraproposta e confirmação.',
+  }));
 
-      if (!before) {
-        const recipientId = normalized.offeredBy === 'customer' ? normalized.providerId : demand.requesterId;
-        await sendPushToUsers([recipientId], {
-          title: normalized.offeredBy === 'customer' ? '↔ Nova contraproposta' : '💰 Nova proposta recebida',
-          body: `${normalized.amount.toFixed(2).replace('.', ',')} para ${demand.title}`,
-          data: { type: 'proposal.created', demandId: demand.id, proposalId: normalized.id },
-        });
-      } else if (normalized.customerConfirmedAt !== before.customerConfirmedAt || normalized.providerConfirmedAt !== before.providerConfirmedAt) {
-        const recipientId = normalized.offeredBy === 'customer' ? normalized.providerId : demand.requesterId;
-        await sendPushToUsers([recipientId], {
-          title: bothConfirmed ? '✅ Serviço confirmado' : '🔔 Confirmação recebida',
-          body: bothConfirmed ? `O serviço “${demand.title}” foi confirmado pelos dois lados.` : `A outra parte confirmou a proposta de ${normalized.amount.toFixed(2).replace('.', ',')}.`,
-          data: { type: bothConfirmed ? 'agreement.confirmed' : 'proposal.confirmed', demandId: demand.id, proposalId: normalized.id },
-        });
-      }
-    }
-    return reply.send({ ok: true, count: proposals.length });
+  app.post<{ Params: { id: string }; Body: { userId?: string; requesterId?: string } }>('/api/v1/proposals/:id/accept', async (request, reply) => {
+    const userId = request.body?.userId ?? request.body?.requesterId;
+    return confirmProposal(request.params.id, userId, reply, true);
   });
 
-  app.post<{ Params: { id: string }; Body: { requesterId: string } }>('/api/v1/proposals/:id/accept', async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { userId: string } }>('/api/v1/proposals/:id/confirm', async (request, reply) => confirmProposal(request.params.id, request.body?.userId, reply, false));
+
+  app.post<{ Params: { id: string }; Body: { userId?: string; amount?: number; message?: string } }>('/api/v1/proposals/:id/counter', async (request, reply) => {
+    const userId = request.body?.userId;
+    const amount = request.body?.amount;
+    if (!userId || !Number.isFinite(amount) || !amount || amount <= 0) return reply.code(400).send({ error: 'INVALID_COUNTER_PROPOSAL', message: 'Informe participante e valor maior que zero.' });
     const proposal = (await listProposals()).find((item) => item.id === request.params.id);
     if (!proposal) return reply.code(404).send({ error: 'PROPOSAL_NOT_FOUND', message: 'Proposta não encontrada.' });
     const demand = await findDemand(proposal.demandId);
-    if (!demand || demand.requesterId !== request.body?.requesterId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Somente o cliente pode aceitar a proposta nesta rota.' });
-    return confirmProposal(request.params.id, request.body.requesterId, reply);
+    if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });
+    if (proposal.status !== 'pending') return reply.code(409).send({ error: 'PROPOSAL_UNAVAILABLE', message: 'Somente propostas pendentes podem receber contraproposta.' });
+    if (userId !== demand.requesterId && userId !== proposal.providerId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta negociação.' });
+    const offeredBy = proposal.offeredBy ?? 'provider';
+    const authorId = offeredBy === 'customer' ? demand.requesterId : proposal.providerId;
+    if (userId === authorId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Quem enviou a oferta deve aguardar a resposta da outra parte.' });
+    const now = new Date().toISOString();
+    const history = await listProposals(proposal.demandId);
+    const counter: Proposal = { id: `pro_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, demandId: proposal.demandId, providerId: proposal.providerId, amount: Math.round(amount * 100) / 100, message: request.body?.message?.trim() || undefined, status: 'pending', version: Math.max(0, ...history.map((item) => item.version ?? 1)) + 1, parentProposalId: proposal.id, offeredBy: userId === demand.requesterId ? 'customer' : 'provider', createdAt: now };
+    await persistProposal({ ...proposal, status: 'superseded' });
+    await persistProposal(counter);
+    const nextDemand = { ...demand, status: 'negotiating' as const, updatedAt: now };
+    await persistDemand(nextDemand);
+    broadcastRealtime({ type: 'proposal.updated', demandId: demand.id, proposalId: proposal.id, actorUserId: userId, at: now });
+    broadcastRealtime({ type: 'proposal.created', demandId: demand.id, proposalId: counter.id, actorUserId: userId, at: now });
+    broadcastRealtime({ type: 'demand.updated', demandId: demand.id, actorUserId: userId, at: now });
+    const recipientId = userId === demand.requesterId ? proposal.providerId : demand.requesterId;
+    await sendPushToUsers([recipientId], { title: '↔ Nova contraproposta', body: `${counter.amount.toFixed(2).replace('.', ',')} para ${demand.title}`, data: { type: 'proposal.created', demandId: demand.id, proposalId: counter.id } });
+    return reply.code(201).send({ proposal: counter, supersededProposal: { ...proposal, status: 'superseded' }, demand: nextDemand });
   });
-
-  app.post<{ Params: { id: string }; Body: { userId: string } }>('/api/v1/proposals/:id/confirm', async (request, reply) => confirmProposal(request.params.id, request.body?.userId, reply));
 }
 
-async function confirmProposal(id: string, userId: string | undefined, reply: any) {
+async function confirmProposal(id: string, userId: string | undefined, reply: any, isAcceptance: boolean) {
   if (!userId) return reply.code(400).send({ error: 'USER_REQUIRED', message: 'Informe o usuário que está confirmando.' });
   const proposal = (await listProposals()).find((item) => item.id === id);
   if (!proposal) return reply.code(404).send({ error: 'PROPOSAL_NOT_FOUND', message: 'Proposta não encontrada.' });
@@ -125,6 +123,11 @@ async function confirmProposal(id: string, userId: string | undefined, reply: an
   if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });
   if (userId !== demand.requesterId && userId !== proposal.providerId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta negociação.' });
   if (!['pending', 'accepted'].includes(proposal.status)) return reply.code(409).send({ error: 'PROPOSAL_UNAVAILABLE', message: 'Esta proposta não está disponível para confirmação.' });
+  const offeredBy = proposal.offeredBy ?? 'provider';
+  const authorId = offeredBy === 'customer' ? demand.requesterId : proposal.providerId;
+  const offerRecipientId = authorId === demand.requesterId ? proposal.providerId : demand.requesterId;
+  if (isAcceptance && userId !== offerRecipientId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Somente quem recebeu a oferta pode aceitá-la.' });
+  if (!isAcceptance && userId === authorId && !(offerRecipientId === demand.requesterId ? proposal.customerConfirmedAt : proposal.providerConfirmedAt)) return reply.code(409).send({ error: 'WAITING_ACCEPTANCE', message: 'A outra parte precisa aceitar a oferta antes da sua confirmação.' });
 
   const now = new Date().toISOString();
   const nextProposal: Proposal = userId === demand.requesterId ? { ...proposal, customerConfirmedAt: proposal.customerConfirmedAt ?? now } : { ...proposal, providerConfirmedAt: proposal.providerConfirmedAt ?? now };
@@ -133,6 +136,10 @@ async function confirmProposal(id: string, userId: string | undefined, reply: an
   const nextDemand: Demand = bothConfirmed ? { ...demand, status: 'accepted', acceptedProviderId: normalized.providerId, updatedAt: now } : { ...demand, status: 'negotiating', acceptedProviderId: demand.acceptedProviderId, updatedAt: now };
   await persistProposal(normalized);
   await persistDemand(nextDemand);
+  if (bothConfirmed) {
+    const competitors = await listProposals(demand.id);
+    await Promise.all(competitors.filter((item) => item.id !== normalized.id && item.status === 'pending').map((item) => persistProposal({ ...item, status: 'rejected' })));
+  }
   broadcastRealtime({ type: 'proposal.updated', demandId: normalized.demandId, proposalId: normalized.id, actorUserId: userId, at: now });
   broadcastRealtime({ type: 'demand.updated', demandId: nextDemand.id, actorUserId: userId, at: now });
   const recipientId = userId === demand.requesterId ? proposal.providerId : demand.requesterId;

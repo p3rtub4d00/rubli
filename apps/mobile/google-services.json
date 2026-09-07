@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "624178649765",
+    "project_id": "rubli-12766",
+    "storage_bucket": "rubli-12766.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:624178649765:android:174aff07721dbec9208b4c",
+        "android_client_info": {
+          "package_name": "br.com.rubli.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLnq-ZwQah3Ii6z3k1CCcHWn6ksqudnYY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

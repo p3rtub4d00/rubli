@@ -1,13 +1,12 @@
 import type { Conversation, Demand, Proposal, ChatMessage } from '@rubli/shared';
 
 const API_PORT = 3000;
-const LAN_API_URL = 'http://192.168.100.85:3000';
 
 function resolveApiUrl() {
   const configured = process.env.EXPO_PUBLIC_RUBLI_API_URL?.trim();
   if (configured) return configured.replace(/\/$/, '');
   if (typeof window !== 'undefined' && window.location?.hostname) return `http://${window.location.hostname}:${API_PORT}`;
-  return LAN_API_URL;
+  return '';
 }
 
 export const API_URL = resolveApiUrl();
@@ -27,7 +26,12 @@ export async function apiHealth() { return request<{ ok: boolean; persistence: s
 export async function apiListDemands() { return request<Demand[]>('/api/v1/demands'); }
 export async function apiCreateDemand(demand: Demand) { return request<Demand>('/api/v1/demands', { method: 'POST', body: JSON.stringify(demand) }); }
 export async function apiListProposals(demandId?: string) { return request<Proposal[]>(`/api/v1/proposals${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`); }
-export async function apiSyncProposals(proposals: Proposal[]) { return request<{ ok: boolean; count: number }>('/api/v1/proposals/sync', { method: 'POST', body: JSON.stringify({ proposals }) }); }
+export async function apiCreateProposal(input: { demandId: string; providerId: string; amount: number; message?: string }) { return request<Proposal>('/api/v1/proposals', { method: 'POST', body: JSON.stringify(input) }); }
+export async function apiAcceptProposal(id: string, userId: string) { return request<{ proposal: Proposal; demand: Demand }>(`/api/v1/proposals/${encodeURIComponent(id)}/accept`, { method: 'POST', body: JSON.stringify({ userId }) }); }
+export async function apiConfirmProposal(id: string, userId: string) { return request<{ proposal: Proposal; demand: Demand }>(`/api/v1/proposals/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: JSON.stringify({ userId }) }); }
+export async function apiCounterProposal(id: string, input: { userId: string; amount: number; message?: string }) { return request<{ proposal: Proposal; supersededProposal: Proposal; demand: Demand }>(`/api/v1/proposals/${encodeURIComponent(id)}/counter`, { method: 'POST', body: JSON.stringify(input) }); }
+export async function apiServiceAction(id: string, input: { userId: string; action: 'en_route' | 'arrived' | 'start' | 'request_completion' | 'confirm_completion' }) { return request<Demand>(`/api/v1/demands/${encodeURIComponent(id)}/service-actions`, { method: 'POST', body: JSON.stringify(input) }); }
+export async function apiCancelDemand(id: string, userId: string) { return request<Demand>(`/api/v1/demands/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ userId }) }); }
 export async function apiCreateConversation(conversation: Partial<Conversation>) { return request<Conversation>('/api/v1/conversations', { method: 'POST', body: JSON.stringify(conversation) }); }
 export async function apiListConversations(demandId?: string) { return request<Conversation[]>(`/api/v1/conversations${demandId ? `?demandId=${encodeURIComponent(demandId)}` : ''}`); }
 export async function apiListMessages(conversationId: string) { return request<ChatMessage[]>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`); }

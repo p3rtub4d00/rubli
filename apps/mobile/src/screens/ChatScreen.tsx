@@ -3,6 +3,7 @@ import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, T
 import type { ChatMessage, Conversation, Proposal, Demand, ServiceRating, User } from '@rubli/shared';
 import { getDemands, getMessages, getProposals, saveMessages } from '../storage/localStore';
 import { subscribeRealtime } from '../api/realtime';
+import { apiListDemands, apiListProposals } from '../api/client';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
@@ -37,7 +38,14 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   const [profileOpen, setProfileOpen] = useState(false);
 
   async function reload() {
-    const [messageItems, proposalItems, demandItems] = await Promise.all([getMessages(), getProposals(), getDemands()]);
+    const messageItems = await getMessages();
+    let proposalItems = await getProposals();
+    let demandItems = await getDemands();
+    try {
+      [proposalItems, demandItems] = await Promise.all([apiListProposals(conversation.demandId), apiListDemands()]);
+    } catch {
+      // O cache só é usado para leitura quando a API estiver temporariamente indisponível.
+    }
     const demandItem = demandItems.find((item) => item.id === conversation.demandId) ?? null;
     const demandProposals = proposalItems.filter((item) => item.demandId === conversation.demandId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const preferredProviderId = demandItem?.acceptedProviderId ?? conversation.providerId;

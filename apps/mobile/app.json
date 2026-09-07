@@ -5,20 +5,28 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+
     "splash": {
       "resizeMode": "contain",
       "backgroundColor": "#081B33"
     },
+
     "android": {
       "package": "br.com.rubli.app",
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
+
     "ios": {
       "bundleIdentifier": "br.com.rubli.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "O Rubli usa sua localização para encontrar demandas e oportunidades próximas."
       }
     },
+
     "plugins": [
       "expo-location",
       [
@@ -28,8 +36,15 @@
         }
       ]
     ],
+
     "experiments": {
       "autolinkingModuleResolution": true
+    },
+
+    "extra": {
+      "eas": {
+        "projectId": "ca3b9f0a-42bf-4da1-ae11-fa9479805faa"
+      }
     }
   }
 }
