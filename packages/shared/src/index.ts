@@ -1,4 +1,6 @@
 export type UserRole = 'customer' | 'provider' | 'courier' | 'admin';
+export type ProviderPlan = 'standard' | 'premium_verified';
+export type ProviderVerificationStatus = 'not_requested' | 'pending' | 'simulated_verified';
 
 export type DemandType = 'service' | 'purchase' | 'delivery' | 'freight';
 
@@ -22,6 +24,12 @@ export interface User {
   name: string;
   phone?: string;
   email?: string;
+  taxDocument?: string;
+  taxDocumentType?: 'cpf' | 'cnpj';
+  businessName?: string;
+  businessAddress?: string;
+  issuesInvoice?: boolean;
+  professionalTitle?: string;
   role: UserRole;
   serviceRadiusKm?: number;
   serviceCategories?: string[];
@@ -31,6 +39,10 @@ export interface User {
   profilePhotos?: string[];
   isAvailable?: boolean;
   availabilityUpdatedAt?: string;
+  providerPlan?: ProviderPlan;
+  providerSubscriptionStatus?: 'inactive' | 'trialing' | 'simulated_active';
+  trialEndsAt?: string;
+  verificationStatus?: ProviderVerificationStatus;
   createdAt: string;
 }
 

@@ -2,8 +2,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { Demand, User } from '@rubli/shared';
 
-const BRAND = '#081B33';
-const ACCENT = '#F28C28';
+const BRAND = '#0B3B82';
+const ACCENT = '#0B66FF';
 const GREEN = '#2F7D4A';
 const RED = '#D94A4A';
 
@@ -173,7 +173,7 @@ export function OpportunityScreen({ user, demand, distanceKm, onBack, onViewDema
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F4F7FB' },
+  safe: { flex: 1, backgroundColor: '#F6F9FE' },
   content: { padding: 16, paddingBottom: 40 },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   backButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E2E8F0' },
@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
   statusText: { color: GREEN, fontWeight: '900', fontSize: 11, letterSpacing: 0.4 },
   time: { color: '#94A3B8', fontSize: 11, marginTop: 3, fontWeight: '700' },
 
-  hero: { backgroundColor: BRAND, borderRadius: 22, padding: 20, marginBottom: 16, shadowColor: '#081B33', shadowOpacity: 0.16, shadowRadius: 14, elevation: 4 },
+  hero: { backgroundColor: BRAND, borderRadius: 22, padding: 20, marginBottom: 16, shadowColor: '#0B3B82', shadowOpacity: 0.16, shadowRadius: 14, elevation: 4 },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 13 },
   categoryPill: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   categoryPillText: { color: '#DCE7F3', fontWeight: '800', fontSize: 11 },
@@ -215,11 +215,11 @@ const styles = StyleSheet.create({
   detailValue: { color: '#26384D', fontSize: 14, fontWeight: '800', marginTop: 3 },
   separator: { height: 1, backgroundColor: '#EDF1F5', marginVertical: 4 },
 
-  alertCard: { flexDirection: 'row', backgroundColor: '#FFF8EF', borderRadius: 16, borderWidth: 1, borderColor: '#F7D9B0', padding: 14, marginBottom: 16 },
+  alertCard: { flexDirection: 'row', backgroundColor: '#EDF5FF', borderRadius: 16, borderWidth: 1, borderColor: '#CFE3FF', padding: 14, marginBottom: 16 },
   alertIcon: { fontSize: 21, marginRight: 10 },
   alertContent: { flex: 1 },
-  alertTitle: { color: '#9A5A10', fontWeight: '900', fontSize: 13 },
-  alertText: { color: '#795E3C', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  alertTitle: { color: BRAND, fontWeight: '900', fontSize: 13 },
+  alertText: { color: '#496481', fontSize: 12, lineHeight: 18, marginTop: 4 },
 
   primary: { backgroundColor: ACCENT, borderRadius: 14, paddingVertical: 16, alignItems: 'center', shadowColor: ACCENT, shadowOpacity: 0.2, shadowRadius: 8, elevation: 3 },
   primaryText: { color: '#FFF', fontWeight: '900', fontSize: 15 },

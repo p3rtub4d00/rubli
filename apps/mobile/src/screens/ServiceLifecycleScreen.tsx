@@ -3,7 +3,8 @@ import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity
 import type { Demand, Proposal, Rating, User } from '@rubli/shared';
 import { getDemands, getProposals, saveDemands } from '../storage/localStore';
 import { subscribeRealtime } from '../api/realtime';
-import { archiveCompletedDemand, getRatings, saveRating } from '../profile/profileStore';
+import { apiServiceAction } from '../api/client';
+import { archiveCompletedDemand, getHistoryDemands, getRatings, saveRating } from '../profile/profileStore';
 import { PublicProfileScreen } from './PublicProfileScreen';
 
 const BRAND = '#081B33';
@@ -25,7 +26,8 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
 
   async function reload() {
     const [allDemands, allProposals, allRatings] = await Promise.all([getDemands(), getProposals(), getRatings()]);
-    setDemands(allDemands); setProposals(allProposals); setRatings(allRatings);
+    const history = await getHistoryDemands();
+    setDemands([...allDemands, ...history.filter((item) => !allDemands.some((active) => active.id === item.id))]); setProposals(allProposals); setRatings(allRatings);
   }
   useEffect(() => {
     if (!visible) return;
@@ -65,18 +67,15 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
     const isCustomer = user.id === demand.requesterId;
     const agreement = proposals.find((item) => item.demandId === demand.id && item.providerId === providerId && item.status === 'accepted');
     if (!agreement?.customerConfirmedAt || !agreement.providerConfirmedAt) return Alert.alert('Acordo pendente', 'O serviço só pode avançar depois que cliente e prestador confirmarem o acordo.');
-    const now = new Date().toISOString();
-    let status: Demand['status'] | null = null;
-    let patch: Partial<Demand> = {};
-
-    if (demand.status === 'accepted') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode informar que está a caminho.'); status = 'provider_en_route'; patch = { enRouteAt: now }; }
-    else if (demand.status === 'provider_en_route') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode registrar a chegada.'); status = 'provider_arrived'; patch = { arrivedAt: now }; }
-    else if (demand.status === 'provider_arrived') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode iniciar o serviço.'); status = 'in_progress'; patch = { startedAt: now }; }
-    else if (demand.status === 'in_progress') { if (!isProvider) return Alert.alert('Ação do prestador', 'Somente o prestador contratado pode solicitar a confirmação da conclusão.'); status = 'awaiting_customer_confirmation'; patch = { completionRequestedAt: now }; }
-    else if (demand.status === 'awaiting_customer_confirmation') { if (!isCustomer) return Alert.alert('Ação do cliente', 'Somente o cliente que abriu o chamado pode confirmar a conclusão.'); status = 'completed'; patch = { customerConfirmedCompletionAt: now, completedAt: now }; }
-    else return;
-
-    const next = demands.map((item) => item.id === demand.id ? { ...item, ...patch, status, acceptedProviderId: providerId, updatedAt: now } : item);
+    const action = demand.status === 'accepted' ? 'en_route'
+      : demand.status === 'provider_en_route' ? 'arrived'
+        : demand.status === 'provider_arrived' ? 'start'
+          : demand.status === 'in_progress' ? 'request_completion'
+            : demand.status === 'awaiting_customer_confirmation' ? 'confirm_completion' : null;
+    if (!action) return;
+    if ((action === 'confirm_completion' && !isCustomer) || (action !== 'confirm_completion' && !isProvider)) return Alert.alert('Ação não permitida', action === 'confirm_completion' ? 'Somente o cliente que abriu o chamado pode confirmar a conclusão.' : 'Somente o prestador contratado pode atualizar esta etapa.');
+    const updated = await apiServiceAction(demand.id, { userId: user.id, action });
+    const next = demands.map((item) => item.id === updated.id ? updated : item);
     await saveDemands(next); setDemands(next); onChanged();
   }
 

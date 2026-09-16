@@ -1,4 +1,4 @@
 import { registerRootComponent } from 'expo';
-import TestHarness from './TestHarness';
+import App from './App';
 
-registerRootComponent(TestHarness);
+registerRootComponent(App);

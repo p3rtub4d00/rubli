@@ -7,10 +7,10 @@ import { PublicProfileScreen } from './PublicProfileScreen';
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
 
-interface Props { user: User; profiles: User[]; visible: boolean; onClose: () => void; onChanged?: () => void; }
+interface Props { user: User; profiles: User[]; visible: boolean; onClose: () => void; onChanged?: () => void; onRatingSaved?: () => Promise<void> | void; }
 function makeId() { return `rat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
 
-export function HistoryScreen({ user, profiles, visible, onClose, onChanged }: Props) {
+export function HistoryScreen({ user, profiles, visible, onClose, onChanged, onRatingSaved }: Props) {
   const [demands, setDemands] = useState<Demand[]>([]);
   const [ratings, setRatings] = useState<Rating[]>([]);
   const [rateDemand, setRateDemand] = useState<Demand | null>(null);
@@ -51,7 +51,7 @@ export function HistoryScreen({ user, profiles, visible, onClose, onChanged }: P
     }
     onChanged?.();
     await reload();
-    Alert.alert('Avaliação enviada', completedRatings.length >= participants ? 'Chamado encerrado e movido para o histórico.' : 'Avaliação registrada. A outra parte ainda precisa avaliar.');
+    await onRatingSaved?.();
   }
 
   return <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

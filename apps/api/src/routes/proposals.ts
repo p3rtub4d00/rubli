@@ -73,6 +73,30 @@ export async function registerProposalRoutes(app: FastifyInstance) {
     return reply.code(201).send(proposal);
   });
 
+  app.post<{ Params: { id: string }; Body: { providerId?: string } }>('/api/v1/demands/:id/accept-budget', async (request, reply) => {
+    const providerId = request.body?.providerId;
+    const demand = await findDemand(request.params.id);
+    if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });
+    if (!providerId || providerId === demand.requesterId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'O cliente não pode aceitar a própria oferta.' });
+    if (!demand.budget || demand.budget <= 0) return reply.code(409).send({ error: 'BUDGET_UNAVAILABLE', message: 'O cliente não informou um valor para aceite.' });
+    if (!['open', 'negotiating'].includes(demand.status)) return reply.code(409).send({ error: 'DEMAND_UNAVAILABLE', message: 'Esta demanda não está disponível para aceite.' });
+    const existing = await listProposals(demand.id);
+    if (existing.some((item) => item.providerId === providerId && ['pending', 'accepted'].includes(item.status))) return reply.code(409).send({ error: 'DUPLICATE_PROPOSAL', message: 'Você já possui uma negociação ativa neste chamado.' });
+    const now = new Date().toISOString();
+    // O prestador iniciou a negociação ao aceitar trabalhar pelo orçamento do
+    // cliente. Portanto esta é uma oferta do prestador: o cliente a aceita e,
+    // depois disso, o prestador faz a confirmação final. Marcar como oferta do
+    // cliente deixava o botão do cliente tentando aceitar a própria oferta.
+    const proposal: Proposal = { id: `pro_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, demandId: demand.id, providerId, amount: demand.budget, message: 'Prestador propôs atender pelo valor informado pelo cliente.', status: 'pending', offeredBy: 'provider', version: 1, createdAt: now };
+    const nextDemand: Demand = { ...demand, status: 'negotiating', updatedAt: now };
+    await persistProposal(proposal);
+    await persistDemand(nextDemand);
+    broadcastRealtime({ type: 'proposal.created', demandId: demand.id, proposalId: proposal.id, actorUserId: providerId, at: now });
+    broadcastRealtime({ type: 'demand.updated', demandId: demand.id, actorUserId: providerId, at: now });
+    await sendPushToUsers([demand.requesterId], { title: '💰 Proposta no valor solicitado', body: `O prestador propôs ${proposal.amount.toFixed(2).replace('.', ',')} para ${demand.title}. Aceite ou faça uma contraproposta.`, data: { type: 'proposal.created', demandId: demand.id, proposalId: proposal.id } });
+    return reply.code(201).send({ proposal, demand: nextDemand });
+  });
+
   // Snapshots locais nunca podem decidir acordo. A fila offline usa somente comandos idempotentes.
   app.post('/api/v1/proposals/sync', async (_request, reply) => reply.code(410).send({
     error: 'SYNC_DISABLED',

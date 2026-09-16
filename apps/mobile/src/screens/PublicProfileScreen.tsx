@@ -37,6 +37,11 @@ export function PublicProfileScreen({ user, ratings, visible, onClose }: Props) 
 
           {user.role === 'provider' && <View style={styles.section}>
             <Text style={styles.sectionTitle}>Serviços</Text>
+            {user.professionalTitle && <Text style={styles.text}>Profissional: {user.professionalTitle}</Text>}
+            {user.businessName ? <Text style={styles.meta}>Empresa: {user.businessName}</Text> : <Text style={styles.meta}>Profissional autônomo</Text>}
+            {user.taxDocumentType === 'cnpj' && user.taxDocument && <Text style={styles.meta}>CNPJ: {user.taxDocument}</Text>}
+            {user.businessAddress && <Text style={styles.meta}>Endereço comercial: {user.businessAddress}</Text>}
+            <Text style={styles.meta}>{user.issuesInvoice ? '✓ Emite nota fiscal' : 'Não informa emissão de nota fiscal'}</Text>
             <View style={styles.chips}>{(user.serviceCategories ?? []).length ? (user.serviceCategories ?? []).map((item) => <View key={item} style={styles.chip}><Text style={styles.chipText}>{item}</Text></View>) : <Text style={styles.text}>Categorias ainda não cadastradas.</Text>}</View>
             <Text style={styles.meta}>Atende em até {user.serviceRadiusKm ?? 10} km.</Text>
           </View>}

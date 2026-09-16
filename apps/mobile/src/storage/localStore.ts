@@ -39,12 +39,10 @@ export async function getDemands(): Promise<Demand[]> {
   const localDemands = await readJson<Demand[]>(KEYS.demands, []);
   try {
     const remoteDemands = await apiListDemands();
-    if (remoteDemands.length > 0 || localDemands.length === 0) {
-      const activeRemote = remoteDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
-      await writeJson(KEYS.demands, activeRemote);
-      await archiveDemandRecords(remoteDemands);
-      return activeRemote;
-    }
+    const activeRemote = remoteDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
+    await writeJson(KEYS.demands, activeRemote);
+    await archiveDemandRecords(remoteDemands);
+    return activeRemote;
   } catch {}
   return localDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
 }
@@ -56,7 +54,7 @@ export async function getProposals(): Promise<Proposal[]> {
   const localProposals = await readJson<Proposal[]>(KEYS.proposals, []);
   try {
     const remoteProposals = await apiListProposals();
-    if (remoteProposals.length > 0 || localProposals.length === 0) { await writeJson(KEYS.proposals, remoteProposals); return remoteProposals; }
+    await writeJson(KEYS.proposals, remoteProposals); return remoteProposals;
   } catch {}
   return localProposals;
 }
@@ -69,7 +67,7 @@ export async function getConversations(): Promise<Conversation[]> {
   const local = await readJson<Conversation[]>(KEYS.conversations, []);
   try {
     const remote = await apiListConversations();
-    if (remote.length > 0 || local.length === 0) { await writeJson(KEYS.conversations, remote); return remote; }
+    await writeJson(KEYS.conversations, remote); return remote;
   } catch {}
   return local;
 }
@@ -82,10 +80,10 @@ export async function getMessages(): Promise<ChatMessage[]> {
   const local = await readJson<ChatMessage[]>(KEYS.messages, []);
   try {
     const conversations = await getConversations();
-    if (!conversations.length) return local;
+    if (!conversations.length) { await writeJson(KEYS.messages, []); return []; }
     const remoteLists = await Promise.all(conversations.map((conversation) => apiListMessages(conversation.id)));
     const remote = remoteLists.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    if (remote.length > 0 || local.length === 0) { await writeJson(KEYS.messages, remote); return remote; }
+    await writeJson(KEYS.messages, remote); return remote;
   } catch {}
   return local;
 }

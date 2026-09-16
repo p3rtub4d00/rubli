@@ -1,4 +1,6 @@
 export type UserRole = 'customer' | 'provider' | 'courier' | 'admin';
+export type ProviderPlan = 'standard' | 'premium_verified';
+export type ProviderVerificationStatus = 'not_requested' | 'pending' | 'simulated_verified';
 export type DemandType = 'service' | 'purchase' | 'delivery' | 'freight';
 export type DemandStatus = 'draft' | 'open' | 'negotiating' | 'accepted' | 'provider_en_route' | 'provider_arrived' | 'in_progress' | 'awaiting_customer_confirmation' | 'completed' | 'cancelled';
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
@@ -8,6 +10,12 @@ export interface User {
     name: string;
     phone?: string;
     email?: string;
+    taxDocument?: string;
+    taxDocumentType?: 'cpf' | 'cnpj';
+    businessName?: string;
+    businessAddress?: string;
+    issuesInvoice?: boolean;
+    professionalTitle?: string;
     role: UserRole;
     serviceRadiusKm?: number;
     serviceCategories?: string[];
@@ -17,6 +25,10 @@ export interface User {
     profilePhotos?: string[];
     isAvailable?: boolean;
     availabilityUpdatedAt?: string;
+    providerPlan?: ProviderPlan;
+    providerSubscriptionStatus?: 'inactive' | 'trialing' | 'simulated_active';
+    trialEndsAt?: string;
+    verificationStatus?: ProviderVerificationStatus;
     createdAt: string;
 }
 export interface Demand {

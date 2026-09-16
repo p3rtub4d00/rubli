@@ -22,7 +22,14 @@ export async function ensureDatabaseIndexes() {
     database.collection('proposals').createIndex({ demandId: 1, createdAt: -1 }),
     database.collection('conversations').createIndex({ id: 1 }, { unique: true }),
     database.collection('messages').createIndex({ id: 1 }, { unique: true }),
+    database.collection('ratings').createIndex({ demandId: 1, fromUserId: 1 }, { unique: true }),
+    database.collection('ratings').createIndex({ toUserId: 1, createdAt: -1 }),
     database.collection('push_tokens').createIndex({ userId: 1, token: 1 }, { unique: true }),
+    database.collection('users').createIndex({ id: 1 }, { unique: true }),
+    database.collection('users').createIndex({ email: 1 }, { unique: true, sparse: true }),
+    database.collection('auth_users').createIndex({ email: 1 }, { unique: true }),
+    database.collection('support_tickets').createIndex({ id: 1 }, { unique: true }),
+    database.collection('support_tickets').createIndex({ status: 1, createdAt: -1 }),
   ]);
 }
 

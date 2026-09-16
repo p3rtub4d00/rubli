@@ -5,6 +5,7 @@ import { memoryStore } from '../store/memoryStore.js';
 import { getDatabase } from '../store/database.js';
 import { broadcastRealtime } from '../realtime.js';
 import { sendPushToRoles, sendPushToUsers } from '../push.js';
+import { isAllowedCategory } from '../store/categories.js';
 
 const demandTypes: DemandType[] = ['service', 'purchase', 'delivery', 'freight'];
 const collectionName = 'demands';
@@ -34,8 +35,11 @@ export async function registerDemandRoutes(app: FastifyInstance) {
   app.post<{ Body: Partial<Demand> }>('/api/v1/demands', async (request, reply) => {
     const body = request.body ?? {};
     if (!body.id || !body.requesterId || !body.type || !demandTypes.includes(body.type) || !body.title || !body.description || !body.category || !body.locationLabel) return reply.code(400).send({ error: 'INVALID_DEMAND', message: 'Dados obrigatórios da demanda não foram preenchidos.' });
-    const allowedCategories = DEMAND_CATEGORIES[body.type as DemandType] as readonly string[];
-    if (!allowedCategories.includes(body.category)) return reply.code(400).send({ error: 'INVALID_CATEGORY', message: 'Categoria incompatível com o tipo da demanda.' });
+    if (!await isAllowedCategory(body.type as DemandType, body.category)) return reply.code(400).send({ error: 'INVALID_CATEGORY', message: 'Categoria incompatível com o tipo da demanda.' });
+    const photoUris = Array.isArray(body.photoUris) ? body.photoUris.filter((item): item is string => typeof item === 'string') : [];
+    if (photoUris.length > 5 || photoUris.some((item) => item.length > 2_000_000) || photoUris.reduce((total, item) => total + item.length, 0) > 8_000_000) {
+      return reply.code(413).send({ error: 'PHOTOS_TOO_LARGE', message: 'Envie no máximo 5 fotos, totalizando até 6 MB.' });
+    }
 
     const db = await getDatabase();
     const existingForId = db ? await db.collection<Demand>(collectionName).findOne({ id: body.id }) : memoryStore.demands.find((item) => item.id === body.id);
@@ -43,7 +47,7 @@ export async function registerDemandRoutes(app: FastifyInstance) {
 
     const now = new Date().toISOString();
     // A criação nunca pode carregar estado contratado ou de execução vindo do aparelho.
-    const demand: Demand = { id: body.id, requesterId: body.requesterId, type: body.type, title: body.title.trim(), description: body.description.trim(), category: body.category, budgetType: body.budget ? 'fixed' : 'open', budget: typeof body.budget === 'number' ? body.budget : undefined, locationLabel: body.locationLabel.trim(), latitude: body.latitude, longitude: body.longitude, isUrgent: body.isUrgent === true, photoUris: body.photoUris, status: 'open', createdAt: now, updatedAt: now };
+    const demand: Demand = { id: body.id, requesterId: body.requesterId, type: body.type, title: body.title.trim(), description: body.description.trim(), category: body.category, budgetType: body.budget ? 'fixed' : 'open', budget: typeof body.budget === 'number' ? body.budget : undefined, locationLabel: body.locationLabel.trim(), latitude: body.latitude, longitude: body.longitude, isUrgent: body.isUrgent === true, photoUris, status: 'open', createdAt: now, updatedAt: now };
 
     let merged: Demand;
     let existing: Demand | undefined;
@@ -106,9 +110,17 @@ export async function registerDemandRoutes(app: FastifyInstance) {
       if (result.matchedCount !== 1) return reply.code(409).send({ error: 'SERVICE_STATE_CHANGED', message: 'A etapa foi alterada por outro dispositivo. Atualize a demanda e tente novamente.' });
     } else { const index = memoryStore.demands.findIndex((item) => item.id === demand.id); if (index >= 0) memoryStore.demands[index] = next; }
     broadcastRealtime({ type: 'demand.updated', demandId: demand.id, actorUserId: userId, at: now });
+    if (action === 'confirm_completion' && demand.acceptedProviderId) {
+      broadcastRealtime({ type: 'rating.requested', demandId: demand.id, actorUserId: userId, at: now });
+      void sendPushToUsers([demand.acceptedProviderId], {
+        title: '⭐ Avalie o cliente',
+        body: `O serviço “${demand.title}” foi concluído. Conte como foi sua experiência.`,
+        data: { type: 'rating.requested', demandId: demand.id, status: next.status },
+      }).catch(() => undefined);
+    }
     const recipientId = isProvider ? demand.requesterId : demand.acceptedProviderId;
     const stage = stageText(next.status);
-    if (recipientId && stage) await sendPushToUsers([recipientId], { ...stage, data: { type: 'demand.updated', demandId: demand.id, status: next.status } });
+    if (recipientId && stage) void sendPushToUsers([recipientId], { ...stage, data: { type: 'demand.updated', demandId: demand.id, status: next.status } }).catch(() => undefined);
     return reply.send(next);
   });
 

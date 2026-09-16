@@ -3,11 +3,12 @@ import { registerForPushNotifications } from '../notifications/push';
 import { API_URL } from './client';
 
 export type RealtimeEvent = {
-  type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created';
+  type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created' | 'rating.created' | 'rating.requested' | 'admin.data_purged';
   demandId?: string;
   proposalId?: string;
   conversationId?: string;
   actorUserId?: string;
+  scope?: 'demands' | 'users';
   at: string;
 };
 

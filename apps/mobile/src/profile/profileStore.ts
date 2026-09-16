@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Demand, Rating, User } from '@rubli/shared';
+import { apiCreateRating, apiListRatings } from '../api/client';
 
 const RATINGS_KEY = '@rubli/ratings';
 const HISTORY_KEY = '@rubli/history_demands';
@@ -11,13 +12,19 @@ export async function updateStoredUser(user: User) {
 
 export async function getRatings(): Promise<Rating[]> {
   const raw = await AsyncStorage.getItem(RATINGS_KEY);
-  if (!raw) return [];
-  try { return JSON.parse(raw) as Rating[]; } catch { return []; }
+  let local: Rating[] = [];
+  try { local = raw ? JSON.parse(raw) as Rating[] : []; } catch { local = []; }
+  try {
+    const remote = await apiListRatings();
+    await AsyncStorage.setItem(RATINGS_KEY, JSON.stringify(remote));
+    return remote;
+  } catch { return local; }
 }
 
 export async function saveRating(rating: Rating) {
+  const saved = await apiCreateRating({ demandId: rating.demandId, fromUserId: rating.fromUserId, stars: rating.stars, comment: rating.comment });
   const ratings = await getRatings();
-  const next = [rating, ...ratings.filter((item) => !(item.demandId === rating.demandId && item.fromUserId === rating.fromUserId && item.toUserId === rating.toUserId))];
+  const next = [saved, ...ratings.filter((item) => item.id !== saved.id)];
   await AsyncStorage.setItem(RATINGS_KEY, JSON.stringify(next));
   return next;
 }

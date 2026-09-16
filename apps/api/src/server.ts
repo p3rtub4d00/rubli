@@ -9,10 +9,14 @@ import { registerProposalRoutes } from './routes/proposals.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { registerNearbyRoutes } from './routes/nearby.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerRatingRoutes } from './routes/ratings.js';
+import { registerAdminRoutes } from './routes/admin.js';
+import { registerSupportRoutes } from './routes/support.js';
 import { attachRealtimeClient } from './realtime.js';
 import { closeDatabase, ensureDatabaseIndexes, getDatabase } from './store/database.js';
 
-const app = Fastify({ logger: true });
+// Fotos de chamadas de teste são enviadas como data URI; limite abaixo do máximo de 16 MB do MongoDB.
+const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
 await app.register(helmet);
 await app.register(cors, { origin: true });
@@ -23,6 +27,9 @@ await registerProposalRoutes(app);
 await registerChatRoutes(app);
 await registerNearbyRoutes(app);
 await registerNotificationRoutes(app);
+await registerRatingRoutes(app);
+await registerSupportRoutes(app);
+await registerAdminRoutes(app);
 
 app.get('/api/v1/realtime', { websocket: true }, (socket) => {
   attachRealtimeClient(socket);

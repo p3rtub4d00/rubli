@@ -69,5 +69,13 @@ export async function sendPushToRoles(
   const recipients = await db.collection<PushRecipient>(collectionName)
     .find({ role: { $in: roles } })
     .toArray();
-  await sendPushToUsers(recipients.map((recipient) => recipient.userId), notification);
+  const recipientIds = [...new Set(recipients.map((recipient) => recipient.userId))];
+  if (!roles.includes('provider')) return sendPushToUsers(recipientIds, notification);
+  const premiumUsers = await db.collection('users').find({ id: { $in: recipientIds }, providerPlan: 'premium_verified', verificationStatus: 'simulated_verified', providerSubscriptionStatus: 'simulated_active' }).toArray();
+  const premiumIds = premiumUsers.map((user) => user.id as string);
+  const standardIds = recipientIds.filter((id) => !premiumIds.includes(id));
+  // O disparo Premium é enviado primeiro em uma chamada separada. A entrega
+  // final continua dependendo do provedor de push e da conectividade do celular.
+  await sendPushToUsers(premiumIds, notification);
+  await sendPushToUsers(standardIds, notification);
 }

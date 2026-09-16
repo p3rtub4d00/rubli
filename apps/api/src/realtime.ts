@@ -1,11 +1,12 @@
 import type { WebSocket } from 'ws';
 
 export type RealtimeEvent = {
-  type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created';
+  type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created' | 'rating.created' | 'rating.requested' | 'admin.data_purged';
   demandId?: string;
   proposalId?: string;
   conversationId?: string;
   actorUserId?: string;
+  scope?: 'demands' | 'users';
   at: string;
 };
 

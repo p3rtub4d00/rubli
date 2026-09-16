@@ -159,12 +159,13 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
     setDemands(nextDemands);
   }
 
-  async function updateServiceStage(demand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
+  async function updateServiceStage(demand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion'): Promise<Demand> {
     const remoteAction = action === 'request_confirmation' ? 'request_completion' : action;
     const updated = await apiServiceAction(demand.id, { userId: user.id, action: remoteAction });
     const nextDemands = demands.map((item) => item.id === updated.id ? updated : item);
     await saveDemands(nextDemands);
     setDemands(nextDemands.filter(isOperationalDemand));
+    return updated;
   }
 
   if (activeConversation) {

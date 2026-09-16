@@ -16,6 +16,7 @@ import { NotificationCenterScreen } from './src/screens/NotificationCenterScreen
 const PROFILE_KEY = '@rubli/test_profiles';
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
+const SHOW_TEST_CONTROLS = process.env.EXPO_PUBLIC_RUBLI_SHOW_TEST_CONTROLS === 'true';
 
 type StoredProfiles = User[];
 async function readProfiles(): Promise<StoredProfiles> { const raw = await AsyncStorage.getItem(PROFILE_KEY); if (!raw) return []; try { return JSON.parse(raw) as User[]; } catch { return []; } }
@@ -48,7 +49,7 @@ export default function TestHarness() {
 
   return <SafeAreaView style={styles.root}>
     <View style={styles.appWrap}><App key={`${activeUser.id}:${activeUser.role}:${activeUser.email ?? ''}:${appVersion}`} /></View>
-    <View style={styles.testBar}>
+    {SHOW_TEST_CONTROLS && <View style={styles.testBar}>
       <Text style={styles.testBarLabel}>🧪 TESTE</Text>
       <TouchableOpacity style={styles.testButton} onPress={() => setSelectorOpen(true)}><Text style={styles.testButtonText}>⇄ Perfis</Text></TouchableOpacity>
       <TouchableOpacity style={styles.testButton} onPress={() => setNegotiationsOpen(true)}><Text style={styles.testButtonText}>💼 Negociações</Text></TouchableOpacity>
@@ -57,7 +58,7 @@ export default function TestHarness() {
       <TouchableOpacity style={styles.testButton} onPress={() => setHistoryOpen(true)}><Text style={styles.testButtonText}>📋 Histórico</Text></TouchableOpacity>
       <TouchableOpacity style={styles.testButton} onPress={() => setMessagesOpen(true)}><Text style={styles.testButtonText}>💬 Mensagens</Text></TouchableOpacity>
       <TouchableOpacity style={styles.testButton} onPress={() => setNotificationsOpen(true)}><Text style={styles.testButtonText}>🔔 Notificações</Text></TouchableOpacity>
-    </View>
+    </View>}
 
     <Modal visible={selectorOpen} transparent animationType="slide" onRequestClose={() => setSelectorOpen(false)}><View style={styles.modalBackdrop}><View style={styles.modalCard}><Text style={styles.modalTitle}>Perfis de teste</Text><Text style={styles.modalSubtitle}>Troque entre cliente e prestador sem apagar dados.</Text>{profiles.map((profile) => <TouchableOpacity key={profile.id} style={[styles.profileCard, activeUser.id === profile.id && styles.profileActive]} onPress={() => activateProfile(profile)}><View style={styles.profileText}><Text style={styles.profileName}>{profile.name}</Text><Text style={styles.profileMeta}>{profile.role === 'provider' ? 'Prestador' : 'Cliente'} · {profile.email}</Text></View>{activeUser.id === profile.id && <Text style={styles.activeMark}>ATIVO</Text>}</TouchableOpacity>)}<TouchableOpacity style={styles.newProfileButton} onPress={() => { setAccountSetupOpen(true); setSelectorOpen(false); }}><Text style={styles.newProfileText}>+ Criar outro perfil de teste</Text></TouchableOpacity><TouchableOpacity style={styles.resetButton} onPress={resetTestData}><Text style={styles.resetText}>Limpar lista de perfis de teste</Text></TouchableOpacity><TouchableOpacity style={styles.closeButton} onPress={() => setSelectorOpen(false)}><Text style={styles.closeText}>Fechar</Text></TouchableOpacity></View></View></Modal>
     <Modal visible={accountSetupOpen} animationType="slide" onRequestClose={() => setAccountSetupOpen(false)}><AccountSetupScreen onCreated={onAccountCreated} /></Modal>

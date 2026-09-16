@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import type { ChatMessage, Conversation, Proposal, Demand, ServiceRating, User } from '@rubli/shared';
+import type { ChatMessage, Conversation, Proposal, Demand, Rating, User } from '@rubli/shared';
 import { getDemands, getMessages, getProposals, saveMessages } from '../storage/localStore';
 import { subscribeRealtime } from '../api/realtime';
-import { apiListDemands, apiListProposals } from '../api/client';
+import { apiListDemands, apiListProposals, apiListRatings } from '../api/client';
+import { CompletionRatingModal } from './CompletionRatingModal';
 
 const BRAND = '#081B33';
 const ACCENT = '#F28C28';
@@ -13,19 +14,20 @@ interface ChatScreenProps {
   currentUserId: string;
   otherUserName?: string;
   providerProfile?: User | null;
-  providerRatings?: ServiceRating[];
+  providerRatings?: Rating[];
   isCustomer?: boolean;
   onBack: () => void;
   onAcceptProposal?: (proposal: Proposal) => Promise<void>;
   onConfirmAgreement?: (proposal: Proposal) => Promise<void>;
   onCounterProposal?: (proposal: Proposal, amount: number, message?: string) => Promise<void>;
-  onServiceAction?: (demand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') => Promise<void>;
+  onServiceAction?: (demand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') => Promise<Demand>;
+  onRatingSaved?: () => Promise<void> | void;
 }
 
 function newMessageId() { return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
 function money(value: number) { return `R$ ${value.toFixed(2).replace('.', ',')}`; }
 
-export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', providerProfile = null, providerRatings = [], isCustomer = false, onBack, onAcceptProposal, onConfirmAgreement, onCounterProposal, onServiceAction }: ChatScreenProps) {
+export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuário', providerProfile = null, providerRatings = [], isCustomer = false, onBack, onAcceptProposal, onConfirmAgreement, onCounterProposal, onServiceAction, onRatingSaved }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -36,6 +38,9 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
   const [counterAmount, setCounterAmount] = useState('');
   const [counterMessage, setCounterMessage] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const [ratings, setRatings] = useState<Rating[]>([]);
+  const [ratingDemand, setRatingDemand] = useState<Demand | null>(null);
+  const [dismissedRatingDemandIds, setDismissedRatingDemandIds] = useState<string[]>([]);
 
   async function reload() {
     const messageItems = await getMessages();
@@ -55,6 +60,8 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
     setProposalHistory(matching);
     setProposal(matching[matching.length - 1] ?? null);
     setDemand(demandItem);
+    const remoteRatings = await apiListRatings().catch(() => [] as Rating[]);
+    setRatings(remoteRatings);
   }
 
   useEffect(() => { reload().catch(() => Alert.alert('Erro', 'Não foi possível carregar a conversa.')); }, [conversation.id, conversation.demandId, conversation.providerId]);
@@ -64,14 +71,22 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
     }
   }), [conversation.id, conversation.demandId, proposal?.id]);
 
+  useEffect(() => {
+    if (!demand || demand.status !== 'completed') return;
+    if (dismissedRatingDemandIds.includes(demand.id)) return;
+    const alreadyRated = ratings.some((item) => item.demandId === demand.id && item.fromUserId === currentUserId);
+    if (!alreadyRated) setRatingDemand(demand);
+  }, [demand?.id, demand?.status, currentUserId, ratings, dismissedRatingDemandIds]);
+
   const currentConversationMessages = useMemo(() => messages.filter((item) => item.conversationId === conversation.id), [messages, conversation.id]);
   const offerSide = proposal?.offeredBy ?? 'provider';
   const offerAuthorId = offerSide === 'customer' ? conversation.customerId : conversation.providerId;
   const recipientId = offerSide === 'customer' ? conversation.providerId : conversation.customerId;
   const isOfferAuthor = Boolean(proposal && currentUserId === offerAuthorId);
-  const canRespondToOffer = Boolean(proposal && proposal.status === 'pending' && currentUserId === recipientId);
   const customerConfirmed = Boolean(proposal?.customerConfirmedAt);
   const providerConfirmed = Boolean(proposal?.providerConfirmedAt);
+  const recipientAlreadyConfirmed = recipientId === conversation.customerId ? customerConfirmed : providerConfirmed;
+  const canRespondToOffer = Boolean(proposal && proposal.status === 'pending' && currentUserId === recipientId && !recipientAlreadyConfirmed);
   const bothConfirmed = customerConfirmed && providerConfirmed;
   const agreementInProgress = proposal?.status === 'accepted' || Boolean(demand && ['accepted', 'provider_en_route', 'provider_arrived', 'in_progress', 'awaiting_customer_confirmation', 'completed'].includes(demand.status));
   const agreementClosed = bothConfirmed || agreementInProgress;
@@ -107,7 +122,17 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
 
   async function runServiceAction(action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion') {
     if (!demand || !bothConfirmed || agreementClosed && demand.status !== 'accepted' && demand.status !== 'provider_en_route' && demand.status !== 'provider_arrived' && demand.status !== 'in_progress' && demand.status !== 'awaiting_customer_confirmation' || working || !onServiceAction) return;
-    setWorking(true); try { await onServiceAction(demand, action); await reload(); } catch { Alert.alert('Erro', 'Não foi possível atualizar a etapa do serviço.'); } finally { setWorking(false); }
+    setWorking(true);
+    try {
+      const updatedDemand = await onServiceAction(demand, action);
+      setDemand(updatedDemand);
+      void reload().catch(() => undefined);
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : '';
+      let detail = raw;
+      try { detail = (JSON.parse(raw) as { message?: string }).message ?? raw; } catch { /* A mensagem já está em formato legível. */ }
+      Alert.alert('Não foi possível atualizar a etapa', detail || 'Verifique sua conexão e tente novamente.');
+    } finally { setWorking(false); }
   }
 
   const executionMessage = !demand || !bothConfirmed ? null
@@ -127,6 +152,7 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
         <View style={styles.confirmationBox}><Text style={styles.confirmationText}>{customerConfirmed ? '✓ Cliente confirmado' : '○ Cliente ainda não confirmou'}</Text><Text style={styles.confirmationText}>{providerConfirmed ? '✓ Prestador confirmado' : '○ Prestador ainda não confirmou'}</Text></View>
         {proposal.status === 'pending' && canRespondToOffer && !agreementClosed && <View style={styles.actionGrid}>{canCounter && <TouchableOpacity style={styles.secondaryAction} onPress={() => { setCounterAmount(String(proposal.amount).replace('.', ',')); setCounterMessage(''); setCounterOpen(true); }}><Text style={styles.secondaryActionText}>↔ Contraproposta</Text></TouchableOpacity>}{onAcceptProposal && <TouchableOpacity style={styles.acceptButton} onPress={() => accept().catch(() => undefined)} disabled={working}><Text style={styles.acceptButtonText}>{working ? 'Aceitando...' : `✓ Aceitar por ${money(proposal.amount)}`}</Text></TouchableOpacity>}</View>}
         {proposal.status === 'pending' && isOfferAuthor && !agreementClosed && <Text style={styles.acceptedText}>⏳ Você enviou esta oferta. Aguardando resposta do outro lado.</Text>}
+        {proposal.status === 'pending' && !isOfferAuthor && recipientAlreadyConfirmed && !agreementClosed && <Text style={styles.acceptedText}>✓ Você aceitou a oferta. Aguardando a confirmação final do outro lado.</Text>}
         {!agreementClosed && proposal.status === 'pending' && ((customerConfirmed && !isCustomer) || (providerConfirmed && isCustomer)) && onConfirmAgreement && <TouchableOpacity style={styles.providerConfirmButton} onPress={() => confirmAgreement().catch(() => undefined)} disabled={working}><Text style={styles.providerConfirmText}>{working ? 'Confirmando...' : '✓ Confirmar acordo e serviço'}</Text></TouchableOpacity>}
         {bothConfirmed && <Text style={styles.acceptedText}>✓ Os dois lados confirmaram. Serviço contratado.</Text>}
       </View> : fallbackAcceptedLabel ? <View style={styles.proposalCard}><View style={styles.proposalTop}><Text style={styles.proposalLabel}>ACORDO ATUAL</Text><Text style={styles.proposalStatus}>ACORDO CONFIRMADO</Text></View><Text style={styles.proposalAmount}>{demand?.budget ? money(demand.budget) : 'Valor acordado'}</Text><View style={styles.confirmationBox}><Text style={styles.confirmationText}>✓ Cliente confirmado</Text><Text style={styles.confirmationText}>✓ Prestador confirmado</Text></View><Text style={styles.acceptedText}>✓ Serviço contratado. A negociação permanece registrada no histórico.</Text></View> : null}
@@ -149,7 +175,8 @@ export function ChatScreen({ conversation, currentUserId, otherUserName = 'Usuá
       {currentConversationMessages.length === 0 ? <Text style={styles.empty}>Nenhuma mensagem ainda. Comece a conversa.</Text> : currentConversationMessages.map((message) => { const mine = message.senderId === currentUserId; return <View key={message.id} style={[styles.bubble, mine ? styles.mine : styles.theirs]}><Text style={mine ? styles.mineText : styles.theirsText}>{message.text}</Text><Text style={mine ? styles.mineTime : styles.theirsTime}>{new Date(message.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text></View>; })}
     </ScrollView>
     <View style={styles.composer}><TextInput value={text} onChangeText={setText} placeholder="Digite sua mensagem..." placeholderTextColor="#7A8798" multiline maxLength={1000} style={styles.input} /><TouchableOpacity onPress={() => sendMessage().catch(() => Alert.alert('Erro', 'Não foi possível salvar a mensagem.'))} style={styles.sendButton}><Text style={styles.sendText}>Enviar</Text></TouchableOpacity></View>
-    <Modal visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}><View style={styles.profileModal}><View style={styles.profileModalHeader}><TouchableOpacity onPress={() => setProfileOpen(false)} style={styles.backButton}><Text style={styles.backText}>‹</Text></TouchableOpacity><Text style={styles.profileModalTitle}>Perfil do prestador</Text><View style={{ width: 40 }} /></View><ScrollView contentContainerStyle={styles.profileContent}><View style={styles.profileHero}><View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{(providerProfile?.name ?? otherUserName).charAt(0).toUpperCase()}</Text></View><Text style={styles.profileName}>{providerProfile?.name ?? otherUserName}</Text><Text style={styles.profileRole}>Prestador de serviços</Text>{providerRatings.length > 0 ? <><Text style={styles.ratingBig}>★ {(providerRatings.reduce((sum, item) => sum + item.rating, 0) / providerRatings.length).toFixed(1).replace('.', ',')}</Text><Text style={styles.ratingCount}>{providerRatings.length} avaliação{providerRatings.length === 1 ? '' : 'ões'}</Text></> : <><Text style={styles.newProvider}>★ Novo no Rubli</Text><Text style={styles.ratingCount}>Ainda não possui avaliações</Text></>}</View><View style={styles.profileInfoCard}><Text style={styles.profileSectionTitle}>Informações profissionais</Text>{providerProfile?.serviceCategories?.length ? <Text style={styles.profileInfoText}>🔧 {providerProfile.serviceCategories.join(' • ')}</Text> : null}{providerProfile?.city ? <Text style={styles.profileInfoText}>📍 {providerProfile.city}</Text> : null}{providerProfile?.serviceRadiusKm ? <Text style={styles.profileInfoText}>📡 Atende em até {providerProfile.serviceRadiusKm} km</Text> : null}{providerProfile?.bio ? <><Text style={styles.profileBioLabel}>SOBRE</Text><Text style={styles.profileBio}>{providerProfile.bio}</Text></> : <Text style={styles.profileInfoMuted}>Este profissional ainda não adicionou uma apresentação.</Text>}</View><View style={styles.profileInfoCard}><Text style={styles.profileSectionTitle}>Avaliações dos clientes</Text>{providerRatings.length === 0 ? <Text style={styles.profileInfoMuted}>Este profissional é novo na plataforma. As avaliações aparecerão após serviços concluídos.</Text> : providerRatings.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((rating) => <View key={rating.id} style={styles.ratingRow}><Text style={styles.ratingStars}>{'★'.repeat(Math.round(rating.rating))}{'☆'.repeat(5 - Math.round(rating.rating))}</Text>{rating.comment ? <Text style={styles.ratingComment}>“{rating.comment}”</Text> : <Text style={styles.profileInfoMuted}>Cliente avaliou o serviço sem comentário.</Text>}<Text style={styles.ratingDate}>{new Date(rating.createdAt).toLocaleDateString('pt-BR')}</Text></View>)}</View></ScrollView></View></Modal>
+    <Modal visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}><View style={styles.profileModal}><View style={styles.profileModalHeader}><TouchableOpacity onPress={() => setProfileOpen(false)} style={styles.backButton}><Text style={styles.backText}>‹</Text></TouchableOpacity><Text style={styles.profileModalTitle}>Perfil do prestador</Text><View style={{ width: 40 }} /></View><ScrollView contentContainerStyle={styles.profileContent}><View style={styles.profileHero}><View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{(providerProfile?.name ?? otherUserName).charAt(0).toUpperCase()}</Text></View><Text style={styles.profileName}>{providerProfile?.name ?? otherUserName}</Text><Text style={styles.profileRole}>Prestador de serviços</Text>{providerRatings.length > 0 ? <><Text style={styles.ratingBig}>★ {(providerRatings.reduce((sum, item) => sum + item.stars, 0) / providerRatings.length).toFixed(1).replace('.', ',')}</Text><Text style={styles.ratingCount}>{providerRatings.length} avaliação{providerRatings.length === 1 ? '' : 'ões'}</Text></> : <><Text style={styles.newProvider}>★ Novo no Rubli</Text><Text style={styles.ratingCount}>Ainda não possui avaliações</Text></>}</View><View style={styles.profileInfoCard}><Text style={styles.profileSectionTitle}>Informações profissionais</Text>{providerProfile?.serviceCategories?.length ? <Text style={styles.profileInfoText}>🔧 {providerProfile.serviceCategories.join(' • ')}</Text> : null}{providerProfile?.city ? <Text style={styles.profileInfoText}>📍 {providerProfile.city}</Text> : null}{providerProfile?.serviceRadiusKm ? <Text style={styles.profileInfoText}>📡 Atende em até {providerProfile.serviceRadiusKm} km</Text> : null}{providerProfile?.bio ? <><Text style={styles.profileBioLabel}>SOBRE</Text><Text style={styles.profileBio}>{providerProfile.bio}</Text></> : <Text style={styles.profileInfoMuted}>Este profissional ainda não adicionou uma apresentação.</Text>}</View><View style={styles.profileInfoCard}><Text style={styles.profileSectionTitle}>Avaliações dos clientes</Text>{providerRatings.length === 0 ? <Text style={styles.profileInfoMuted}>Este profissional é novo na plataforma. As avaliações aparecerão após serviços concluídos.</Text> : providerRatings.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((rating) => <View key={rating.id} style={styles.ratingRow}><Text style={styles.ratingStars}>{'★'.repeat(rating.stars)}{'☆'.repeat(5 - rating.stars)}</Text>{rating.comment ? <Text style={styles.ratingComment}>“{rating.comment}”</Text> : <Text style={styles.profileInfoMuted}>Cliente avaliou o serviço sem comentário.</Text>}<Text style={styles.ratingDate}>{new Date(rating.createdAt).toLocaleDateString('pt-BR')}</Text></View>)}</View></ScrollView></View></Modal>
+    <CompletionRatingModal visible={Boolean(ratingDemand)} demand={ratingDemand} user={{ id: currentUserId, role: isCustomer ? 'customer' : 'provider' }} onClose={() => { if (ratingDemand) setDismissedRatingDemandIds((current) => [...current, ratingDemand.id]); setRatingDemand(null); }} onSaved={async () => { if (ratingDemand) setDismissedRatingDemandIds((current) => [...current, ratingDemand.id]); await reload(); await onRatingSaved?.(); }} />
     <Modal visible={counterOpen} transparent animationType="fade" onRequestClose={() => setCounterOpen(false)}><View style={styles.backdrop}><View style={styles.counterCard}><Text style={styles.counterTitle}>Contraproposta</Text><Text style={styles.counterSub}>Valor atual: {proposal ? money(proposal.amount) : '—'}</Text><TextInput value={counterAmount} onChangeText={setCounterAmount} placeholder="Novo valor" keyboardType="decimal-pad" style={styles.counterInput} /><TextInput value={counterMessage} onChangeText={setCounterMessage} placeholder="Mensagem (opcional)" multiline style={[styles.counterInput, styles.counterMultiline]} /><View style={styles.modalActions}><TouchableOpacity style={styles.cancelButton} onPress={() => setCounterOpen(false)}><Text style={styles.cancelText}>Cancelar</Text></TouchableOpacity><TouchableOpacity style={styles.counterButton} onPress={() => sendCounter().catch(() => undefined)} disabled={working}><Text style={styles.counterText}>{working ? 'Enviando...' : 'Enviar'}</Text></TouchableOpacity></View></View></View></Modal>
   </KeyboardAvoidingView>;
 }
