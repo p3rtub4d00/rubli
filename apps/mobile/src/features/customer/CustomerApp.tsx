@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { Demand, DemandType, Proposal, User } from '@rubli/shared';
 import { apiSearchPremiumProviders, type PremiumProviderSearchItem } from '../../core/api/client';
+import { PremiumProviderCard } from './components/PremiumProviderCard';
+import { PremiumProviderSearchScreen } from './screens/PremiumProviderSearchScreen';
 
 const BRAND = '#0B3B82';
 const ACCENT = '#0B66FF';
@@ -28,15 +30,56 @@ export function CustomerApp({ user, demands, proposals, onCreate, onAccept, onCa
   const [providerSearch, setProviderSearch] = useState('');
   const [providerResults, setProviderResults] = useState<PremiumProviderSearchItem[]>([]);
   const [providerTotal, setProviderTotal] = useState(0);
-  const [providerPage, setProviderPage] = useState(1);
   const [searchingProvider, setSearchingProvider] = useState(false);
+  const [showAllPremium, setShowAllPremium] = useState(false);
   const ownDemands = demands.filter((item) => item.requesterId === user.id && !['completed', 'cancelled'].includes(item.status));
   const categoryCards: Array<{ icon: string; label: string; type: DemandType }> = [{ icon: '🚗', label: 'Automotivo', type: 'service' }, { icon: '⚡', label: 'Elétrica', type: 'service' }, { icon: '🔧', label: 'Manutenção', type: 'service' }, { icon: '🧹', label: 'Limpeza', type: 'service' }, { icon: '📦', label: 'Entrega', type: 'delivery' }, { icon: '•••', label: 'Outros', type: 'service' }];
-  async function searchPremiumProviders(page = 1) { setSearchingProvider(true); try { const result = await apiSearchPremiumProviders({ query: providerSearch, page, limit: page === 1 ? 6 : 10 }); setProviderResults((current) => page === 1 ? result.items : [...current, ...result.items.filter((item) => !current.some((saved) => saved.id === item.id))]); setProviderTotal(result.total); setProviderPage(result.nextPage ?? 0); } catch { Alert.alert('Busca indisponível', 'Não foi possível carregar os prestadores verificados agora.'); } finally { setSearchingProvider(false); } }
+  async function searchPremiumProviders() {
+    setSearchingProvider(true);
+    try {
+      const result = await apiSearchPremiumProviders({ query: providerSearch.trim(), page: 1, limit: 6 });
+      setProviderResults(result.items);
+      setProviderTotal(result.total);
+    } catch {
+      Alert.alert('Busca indisponível', 'Não foi possível carregar os prestadores verificados agora.');
+    } finally {
+      setSearchingProvider(false);
+    }
+  }
+
+  if (showAllPremium) {
+    return (
+      <PremiumProviderSearchScreen
+        initialQuery={providerSearch}
+        onBack={() => setShowAllPremium(false)}
+        onOpenProvider={onOpenProvider}
+        onRequestProvider={onRequestProvider}
+      />
+    );
+  }
 
   return <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.search}><Text style={styles.searchIcon}>⌕</Text><TextInput value={providerSearch} onChangeText={setProviderSearch} onSubmitEditing={() => searchPremiumProviders()} placeholder="Buscar prestador verificado" placeholderTextColor="#7C8BA0" style={styles.searchInput} /><TouchableOpacity onPress={() => searchPremiumProviders()}><Text style={styles.seeAll}>{searchingProvider ? '...' : 'Buscar'}</Text></TouchableOpacity></View>
-    {providerResults.length > 0 && <View style={styles.infoBox}><View style={styles.sectionHeader}><Text style={styles.infoTitle}>Prestadores Premium perto de você</Text>{providerTotal > providerResults.length && <TouchableOpacity onPress={() => searchPremiumProviders(providerPage || 1)}><Text style={styles.seeAll}>Ver todos {providerTotal}</Text></TouchableOpacity>}</View>{providerResults.map((provider) => <View key={provider.id} style={styles.proposal}><Text style={styles.demandTitle}>{provider.verificationStatus === 'simulated_verified' ? '✓ ' : ''}{provider.name}</Text><Text style={styles.mutedSmall}>{provider.professionalTitle ?? (provider.providerType === 'courier' ? 'Entregas / Motoboy' : provider.providerType === 'freight' ? 'Fretes e mudanças' : 'Profissional Rubli')}</Text><Text style={styles.mutedSmall}>{provider.metrics.averageRating ? `⭐ ${provider.metrics.averageRating.toFixed(1).replace('.', ',')} (${provider.metrics.ratingsCount})` : 'Novo no Rubli'}{provider.distanceKm !== undefined ? ` · 📍 ${provider.distanceKm.toFixed(1).replace('.', ',')} km` : ''}</Text><Text style={styles.mutedSmall}>{provider.serviceCategories.join(' • ')}{provider.extraCategoriesCount ? ` · + ${provider.extraCategoriesCount} outras` : ''}</Text><View style={styles.actionRow}><TouchableOpacity style={styles.outline} onPress={() => onOpenProvider(provider)}><Text style={styles.outlineText}>Ver perfil</Text></TouchableOpacity><TouchableOpacity style={styles.smallButton} disabled={!provider.isAvailable} onPress={() => onRequestProvider(provider)}><Text style={styles.smallButtonText}>{provider.isAvailable ? 'Solicitar atendimento' : 'Indisponível'}</Text></TouchableOpacity></View></View>)}</View>}
+    {providerResults.length > 0 && <View style={styles.infoBox}>
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.infoTitle}>Prestadores Premium perto de você</Text>
+          <Text style={styles.resultCount}>{providerTotal} profissional{providerTotal === 1 ? '' : 'is'} encontrado{providerTotal === 1 ? '' : 's'}</Text>
+        </View>
+        {providerTotal > providerResults.length && <TouchableOpacity onPress={() => setShowAllPremium(true)}><Text style={styles.seeAll}>Ver todos</Text></TouchableOpacity>}
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.premiumRow}>
+        {providerResults.map((provider) => (
+          <PremiumProviderCard
+            key={provider.id}
+            provider={provider}
+            variant="compact"
+            onOpen={onOpenProvider}
+            onRequest={onRequestProvider}
+          />
+        ))}
+      </ScrollView>
+    </View>}
     <TouchableOpacity style={styles.hero} onPress={() => onCreate('service')} activeOpacity={0.9}><Text style={styles.heroEyebrow}>SERVIÇOS COM SEGURANÇA</Text><Text style={styles.heroTitle}>Encontre quem resolve.{"\n"}Sem complicação.</Text><View style={styles.heroButton}><Text style={styles.heroButtonText}>Criar demanda</Text></View></TouchableOpacity>
     <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Categorias em destaque</Text><Text style={styles.seeAll}>Ver todas</Text></View>
     <View style={styles.categoryGrid}>{categoryCards.map((item) => <TouchableOpacity key={item.label} style={styles.categoryItem} onPress={() => onCreate(item.type)}><View style={styles.categoryIcon}><Text>{item.icon}</Text></View><Text style={styles.categoryLabel}>{item.label}</Text></TouchableOpacity>)}</View>
@@ -45,4 +88,4 @@ export function CustomerApp({ user, demands, proposals, onCreate, onAccept, onCa
   </ScrollView>;
 }
 
-const styles = StyleSheet.create({ content:{padding:16,paddingBottom:94},search:{height:46,borderRadius:14,borderWidth:1,borderColor:'#DCE6F5',backgroundColor:'#FFF',paddingHorizontal:14,flexDirection:'row',alignItems:'center',marginBottom:14},searchIcon:{color:BRAND,fontSize:25,marginRight:8,marginTop:-3},searchInput:{flex:1,color:BRAND},seeAll:{color:ACCENT,fontWeight:'800',fontSize:12},infoBox:{backgroundColor:'#EAF1F8',borderRadius:15,padding:16,marginBottom:18},infoTitle:{color:BRAND,fontWeight:'800',marginBottom:6},proposal:{borderTopWidth:1,borderTopColor:'#E8EDF3',paddingTop:10,marginTop:6},hero:{borderRadius:18,padding:19,minHeight:168,backgroundColor:BRAND,marginBottom:20,justifyContent:'center',overflow:'hidden'},heroEyebrow:{color:'#A9D1FF',fontWeight:'900',fontSize:10,letterSpacing:.6,marginBottom:8},heroTitle:{color:'#FFF',fontWeight:'900',fontSize:25,lineHeight:30},heroButton:{alignSelf:'flex-start',backgroundColor:ACCENT,borderRadius:10,paddingHorizontal:14,paddingVertical:9,marginTop:15},heroButtonText:{color:'#FFF',fontWeight:'900',fontSize:12},sectionHeader:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:11},sectionTitle:{color:BRAND,fontWeight:'900',fontSize:17},categoryGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',marginBottom:23},categoryItem:{width:'30.5%',alignItems:'center',marginBottom:13},categoryIcon:{width:48,height:48,borderRadius:15,backgroundColor:'#E8F3FF',alignItems:'center',justifyContent:'center',marginBottom:6},categoryLabel:{color:'#45607E',fontSize:10,fontWeight:'700',textAlign:'center'},emptyCard:{borderWidth:1,borderColor:'#D9E7FA',borderRadius:16,padding:17,backgroundColor:'#FFF',marginBottom:14},emptyTitle:{color:BRAND,fontWeight:'900',fontSize:16},emptyText:{color:'#65768C',marginTop:5,lineHeight:18,fontSize:13},emptyAction:{color:ACCENT,fontWeight:'900',marginTop:12,fontSize:13},demand:{backgroundColor:'#FFF',borderRadius:16,padding:16,marginBottom:12,borderWidth:1,borderColor:'#E7ECF2'},demandTop:{flexDirection:'row',justifyContent:'space-between',marginBottom:8},demandType:{color:ACCENT,fontWeight:'800'},status:{color:'#607086',fontSize:12,fontWeight:'700'},urgent:{color:ACCENT,fontWeight:'900',marginBottom:7},demandTitle:{color:BRAND,fontSize:17,fontWeight:'800',marginBottom:6},mutedSmall:{color:'#68778C',lineHeight:19,marginBottom:7},outline:{borderWidth:1,borderColor:BRAND,paddingHorizontal:13,paddingVertical:8,borderRadius:10},outlineText:{color:BRAND,fontWeight:'800'},proposalAmount:{color:BRAND,fontWeight:'900',fontSize:16},actionRow:{flexDirection:'row',flexWrap:'wrap',gap:8,marginTop:5},secondaryActions:{flexDirection:'row',flexWrap:'wrap',gap:8},smallButton:{backgroundColor:ACCENT,paddingHorizontal:13,paddingVertical:9,borderRadius:10},smallButtonText:{color:'#FFF',fontWeight:'800'}});
+const styles = StyleSheet.create({ content:{padding:16,paddingBottom:94},search:{height:46,borderRadius:14,borderWidth:1,borderColor:'#DCE6F5',backgroundColor:'#FFF',paddingHorizontal:14,flexDirection:'row',alignItems:'center',marginBottom:14},searchIcon:{color:BRAND,fontSize:25,marginRight:8,marginTop:-3},searchInput:{flex:1,color:BRAND},seeAll:{color:ACCENT,fontWeight:'800',fontSize:12},infoBox:{backgroundColor:'#EAF1F8',borderRadius:15,padding:16,marginBottom:18},infoTitle:{color:BRAND,fontWeight:'800',marginBottom:2},resultCount:{color:'#74849A',fontSize:11},premiumRow:{paddingTop:10,paddingRight:4},proposal:{borderTopWidth:1,borderTopColor:'#E8EDF3',paddingTop:10,marginTop:6},hero:{borderRadius:18,padding:19,minHeight:168,backgroundColor:BRAND,marginBottom:20,justifyContent:'center',overflow:'hidden'},heroEyebrow:{color:'#A9D1FF',fontWeight:'900',fontSize:10,letterSpacing:.6,marginBottom:8},heroTitle:{color:'#FFF',fontWeight:'900',fontSize:25,lineHeight:30},heroButton:{alignSelf:'flex-start',backgroundColor:ACCENT,borderRadius:10,paddingHorizontal:14,paddingVertical:9,marginTop:15},heroButtonText:{color:'#FFF',fontWeight:'900',fontSize:12},sectionHeader:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:11},sectionTitle:{color:BRAND,fontWeight:'900',fontSize:17},categoryGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',marginBottom:23},categoryItem:{width:'30.5%',alignItems:'center',marginBottom:13},categoryIcon:{width:48,height:48,borderRadius:15,backgroundColor:'#E8F3FF',alignItems:'center',justifyContent:'center',marginBottom:6},categoryLabel:{color:'#45607E',fontSize:10,fontWeight:'700',textAlign:'center'},emptyCard:{borderWidth:1,borderColor:'#D9E7FA',borderRadius:16,padding:17,backgroundColor:'#FFF',marginBottom:14},emptyTitle:{color:BRAND,fontWeight:'900',fontSize:16},emptyText:{color:'#65768C',marginTop:5,lineHeight:18,fontSize:13},emptyAction:{color:ACCENT,fontWeight:'900',marginTop:12,fontSize:13},demand:{backgroundColor:'#FFF',borderRadius:16,padding:16,marginBottom:12,borderWidth:1,borderColor:'#E7ECF2'},demandTop:{flexDirection:'row',justifyContent:'space-between',marginBottom:8},demandType:{color:ACCENT,fontWeight:'800'},status:{color:'#607086',fontSize:12,fontWeight:'700'},urgent:{color:ACCENT,fontWeight:'900',marginBottom:7},demandTitle:{color:BRAND,fontSize:17,fontWeight:'800',marginBottom:6},mutedSmall:{color:'#68778C',lineHeight:19,marginBottom:7},outline:{borderWidth:1,borderColor:BRAND,paddingHorizontal:13,paddingVertical:8,borderRadius:10},outlineText:{color:BRAND,fontWeight:'800'},proposalAmount:{color:BRAND,fontWeight:'900',fontSize:16},actionRow:{flexDirection:'row',flexWrap:'wrap',gap:8,marginTop:5},secondaryActions:{flexDirection:'row',flexWrap:'wrap',gap:8},smallButton:{backgroundColor:ACCENT,paddingHorizontal:13,paddingVertical:9,borderRadius:10},smallButtonText:{color:'#FFF',fontWeight:'800'}});
