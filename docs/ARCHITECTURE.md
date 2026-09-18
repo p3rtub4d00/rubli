@@ -1,36 +1,80 @@
-# Rubli — arquitetura inicial
+# Rubli — arquitetura atual
 
 ## Estratégia
-O Rubli será construído como uma plataforma mobile-first, com API central e painel administrativo web.
+O Rubli é uma plataforma mobile-first com API central, painel administrativo web e domínio compartilhado.
 
 ### Camadas
-- **Mobile:** Expo + React Native + TypeScript, preparado para Android e iOS.
+- **Mobile:** Expo + React Native + TypeScript.
 - **API:** Node.js + Fastify + TypeScript.
-- **Persistência atual:** armazenamento local no dispositivo e memória em desenvolvimento.
-- **Persistência futura:** MongoDB, conectado somente quando a conta oficial da marca estiver preparada.
-- **Compartilhado:** `@rubli/shared` concentra tipos e regras de domínio usados por app e API.
+- **Banco:** MongoDB quando `MONGODB_URI` está configurado; modo em memória apenas para desenvolvimento.
+- **Compartilhado:** `@rubli/shared` concentra tipos, geolocalização, categorias e regras compartilhadas.
+- **Realtime:** WebSocket autenticado.
+- **Push:** notificações segmentadas pelo backend.
+- **Autenticação:** access token de curta duração + refresh token rotativo.
 
-## Local-first
-A experiência deve continuar útil quando a internet estiver indisponível. Demandas criadas no aplicativo são gravadas localmente. No futuro, uma fila de sincronização enviará as operações pendentes para a API quando a conexão voltar.
+## Organização do mobile
+A aplicação continua sendo um único app, mas as experiências são separadas internamente:
+- `features/customer`
+- `features/provider`
+- `features/demand`
+- `features/negotiation`
+- `features/profile`
+- `features/service`
+- `features/shared`
 
-### Regra de sincronização futura
-1. Criar operação local com `id` e timestamp.
-2. Marcar como `pending_sync`.
-3. Detectar conectividade.
-4. Enviar para a API com `operationId` idempotente.
-5. Confirmar no servidor.
-6. Marcar como sincronizada.
-7. Resolver conflitos por regra de domínio, nunca por sobrescrita silenciosa.
+Componentes e serviços comuns permanecem em `core` e `shared`.
 
-## Domínio inicial
-O mesmo motor de demandas atende quatro tipos:
+## Modalidades profissionais
+Novas contas profissionais usam:
+- `services` — prestadores de serviços;
+- `courier` — entregas/motoboy;
+- `freight` — fretes e mudanças.
 
-- Serviço: pequenos reparos, limpeza, montagem, pintura e construção.
-- Compra: alguém compra um produto solicitado pelo cliente.
-- Entrega: retirada e entrega de pequenos volumes.
-- Frete: transporte de móveis, mudanças e cargas.
+Registros legados são tratados por compatibilidade de leitura.
 
-Uma demanda pode ter preço fixo, preço negociável ou valor em aberto.
+## Matching
+A elegibilidade de oportunidade é decidida no backend e considera:
+1. conta profissional;
+2. demanda aberta;
+3. categoria/área compatível;
+4. disponibilidade;
+5. acesso/assinatura quando aplicável;
+6. localização;
+7. raio de atendimento;
+8. suspensão administrativa.
 
-## Segurança planejada
-Autenticação real, verificação de telefone, identidade de prestadores, trilha de auditoria, avaliações e pagamentos intermediados serão implementados antes de produção. A versão local não deve ser tratada como ambiente de produção.
+Feed, realtime e push devem reutilizar a mesma regra de matching.
+
+## Privacidade do endereço
+Antes da contratação, prestadores recebem somente localização aproximada.
+Rua, número, complemento, referência e coordenadas exatas não devem ser expostos para prestadores não contratados.
+
+Após confirmação bilateral, o prestador aceito pode acessar o endereço operacional completo.
+
+## Negociação e execução
+Fluxo principal:
+1. demanda;
+2. proposta;
+3. contraproposta;
+4. confirmação bilateral;
+5. agendamento opcional;
+6. prestador a caminho;
+7. prestador chegou;
+8. serviço iniciado;
+9. solicitação de conclusão;
+10. confirmação do cliente;
+11. avaliação.
+
+Há fluxos adicionais para cancelamento e disputa após contratação.
+
+## Solicitação direta
+Uma demanda pode possuir `targetProviderId`.
+Nesse caso somente o prestador selecionado deve receber a oportunidade.
+
+## Regras de engenharia
+- backend é a fonte de verdade para autorização;
+- identidade do usuário vem do token, não de `userId` enviado pelo mobile;
+- alterações de estado devem validar transição e participante;
+- dados sensíveis não devem aparecer em logs;
+- regras centrais não devem ser duplicadas no mobile;
+- mudanças devem manter compatibilidade com registros legados quando possível.
