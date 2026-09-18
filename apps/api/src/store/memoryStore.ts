@@ -1,4 +1,4 @@
-import type { ChatMessage, Conversation, Demand, Proposal, Rating, User } from '@rubli/shared';
+import type { CancellationRequest, ChatMessage, Conversation, Demand, Dispute, Proposal, Rating, ScheduleChange, User } from '@rubli/shared';
 
 export const memoryStore = {
   users: [] as User[],
@@ -7,4 +7,7 @@ export const memoryStore = {
   conversations: [] as Conversation[],
   messages: [] as ChatMessage[],
   ratings: [] as Rating[],
+  cancellationRequests: [] as CancellationRequest[],
+  disputes: [] as Dispute[],
+  scheduleChanges: [] as ScheduleChange[],
 };

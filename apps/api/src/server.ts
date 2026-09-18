@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import websocket from '@fastify/websocket';
-import { registerAuthRoutes } from './routes/auth.js';
+import { authenticatedUserFromToken, registerAuthRoutes } from './routes/auth.js';
 import { registerDemandRoutes } from './routes/demands.js';
 import { registerProposalRoutes } from './routes/proposals.js';
 import { registerChatRoutes } from './routes/chat.js';
@@ -12,6 +12,10 @@ import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerRatingRoutes } from './routes/ratings.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerSupportRoutes } from './routes/support.js';
+import { registerProviderCategoryRoutes } from './routes/providerCategories.js';
+import { registerCancellationRoutes } from './routes/cancellations.js';
+import { registerSchedulingRoutes } from './routes/scheduling.js';
+import { registerProviderSearchRoutes } from './routes/providerSearch.js';
 import { attachRealtimeClient } from './realtime.js';
 import { closeDatabase, ensureDatabaseIndexes, getDatabase } from './store/database.js';
 
@@ -29,10 +33,17 @@ await registerNearbyRoutes(app);
 await registerNotificationRoutes(app);
 await registerRatingRoutes(app);
 await registerSupportRoutes(app);
+await registerProviderCategoryRoutes(app);
+await registerCancellationRoutes(app);
+await registerSchedulingRoutes(app);
+await registerProviderSearchRoutes(app);
 await registerAdminRoutes(app);
 
-app.get('/api/v1/realtime', { websocket: true }, (socket) => {
-  attachRealtimeClient(socket);
+app.get('/api/v1/realtime', { websocket: true }, async (socket, request) => {
+  const accessToken = (request.query as { accessToken?: string } | undefined)?.accessToken;
+  const user = await authenticatedUserFromToken(accessToken);
+  if (!user) { socket.close(1008, 'Unauthorized'); return; }
+  attachRealtimeClient(socket, user.id);
 });
 
 const mongoUri = process.env.MONGODB_URI;

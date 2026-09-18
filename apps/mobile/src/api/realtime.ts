@@ -1,9 +1,9 @@
 import { getUser } from '../storage/localStore';
 import { registerForPushNotifications } from '../notifications/push';
-import { API_URL } from './client';
+import { apiAccessTokenForRealtime, API_URL } from './client';
 
 export type RealtimeEvent = {
-  type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created' | 'rating.created' | 'rating.requested' | 'admin.data_purged';
+  type: 'demand.created' | 'demand.updated' | 'proposal.created' | 'proposal.updated' | 'message.created' | 'rating.created' | 'rating.requested' | 'cancellation.updated' | 'dispute.updated' | 'category.updated' | 'admin.data_purged';
   demandId?: string;
   proposalId?: string;
   conversationId?: string;
@@ -27,7 +27,7 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connectRealtime(connectUserId!); }, 1500);
 }
 
-export function connectRealtime(userId: string) {
+export async function connectRealtime(userId: string) {
   connectUserId = userId;
   if (!API_WS) return;
   getUser().then((storedUser) => {
@@ -35,9 +35,11 @@ export function connectRealtime(userId: string) {
   }).catch(() => undefined);
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   try {
-    const ws = new WebSocket(`${URL}?userId=${encodeURIComponent(userId)}`);
+    const accessToken = await apiAccessTokenForRealtime();
+    if (!accessToken) return;
+    const ws = new WebSocket(`${URL}?accessToken=${encodeURIComponent(accessToken)}`);
     socket = ws;
-    ws.onopen = () => { ws.send(JSON.stringify({ type: 'identify', userId })); };
+    ws.onopen = () => undefined;
     ws.onmessage = (message) => {
       try {
         const event = JSON.parse(String(message.data)) as RealtimeEvent;

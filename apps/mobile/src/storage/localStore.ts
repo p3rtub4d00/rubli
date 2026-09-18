@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage, Conversation, Demand, Proposal, ServiceRating, User } from '@rubli/shared';
-import { apiCreateConversation, apiCreateMessage, apiListConversations, apiListDemands, apiListMessages, apiListProposals } from '../api/client';
+import { apiCreateConversation, apiCreateMessage, apiListConversations, apiListDemands, apiListMessages, apiListProposals, hasAuthenticatedSession } from '../api/client';
 
 const KEYS = {
   user: '@rubli/user', users: '@rubli/users', demands: '@rubli/demands', proposals: '@rubli/proposals', conversations: '@rubli/conversations', messages: '@rubli/messages', ratings: '@rubli/ratings',
@@ -37,6 +37,7 @@ export async function saveDemands(demands: Demand[]) {
 }
 export async function getDemands(): Promise<Demand[]> {
   const localDemands = await readJson<Demand[]>(KEYS.demands, []);
+  if (!await hasAuthenticatedSession()) return localDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
   try {
     const remoteDemands = await apiListDemands();
     const activeRemote = remoteDemands.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
@@ -52,6 +53,7 @@ export async function saveProposals(proposals: Proposal[]) {
 }
 export async function getProposals(): Promise<Proposal[]> {
   const localProposals = await readJson<Proposal[]>(KEYS.proposals, []);
+  if (!await hasAuthenticatedSession()) return localProposals;
   try {
     const remoteProposals = await apiListProposals();
     await writeJson(KEYS.proposals, remoteProposals); return remoteProposals;
@@ -65,6 +67,7 @@ export async function saveConversations(conversations: Conversation[]) {
 }
 export async function getConversations(): Promise<Conversation[]> {
   const local = await readJson<Conversation[]>(KEYS.conversations, []);
+  if (!await hasAuthenticatedSession()) return local;
   try {
     const remote = await apiListConversations();
     await writeJson(KEYS.conversations, remote); return remote;
@@ -74,10 +77,11 @@ export async function getConversations(): Promise<Conversation[]> {
 
 export async function saveMessages(messages: ChatMessage[]) {
   await writeJson(KEYS.messages, messages);
-  try { await Promise.all(messages.map((message) => apiCreateMessage(message))); } catch {}
+  try { await Promise.all(messages.map(({ senderId: _senderId, ...message }) => apiCreateMessage(message))); } catch {}
 }
 export async function getMessages(): Promise<ChatMessage[]> {
   const local = await readJson<ChatMessage[]>(KEYS.messages, []);
+  if (!await hasAuthenticatedSession()) return local;
   try {
     const conversations = await getConversations();
     if (!conversations.length) { await writeJson(KEYS.messages, []); return []; }

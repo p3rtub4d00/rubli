@@ -4,6 +4,7 @@ import { memoryStore } from '../store/memoryStore.js';
 import { getDatabase } from '../store/database.js';
 import { broadcastRealtime } from '../realtime.js';
 import { sendPushToUsers } from '../push.js';
+import { requireAuth } from './auth.js';
 
 function id(prefix: string) { return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
 
@@ -50,11 +51,19 @@ async function persistMessage(message: ChatMessage) {
 }
 
 export async function registerChatRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: { demandId?: string; customerId?: string; providerId?: string } }>('/api/v1/conversations', async (request) => listConversations(request.query));
+  app.get<{ Querystring: { demandId?: string } }>('/api/v1/conversations', { preHandler: requireAuth }, async (request) => {
+    const userId = request.authUser!.id;
+    const conversations = await listConversations({ demandId: request.query.demandId });
+    return conversations.filter((conversation) => conversation.customerId === userId || conversation.providerId === userId);
+  });
 
-  app.post<{ Body: Partial<Conversation> }>('/api/v1/conversations', async (request, reply) => {
+  app.post<{ Body: Partial<Conversation> }>('/api/v1/conversations', { preHandler: requireAuth }, async (request, reply) => {
     const body = request.body ?? {};
     if (!body.demandId || !body.customerId || !body.providerId) return reply.code(400).send({ error: 'INVALID_CONVERSATION', message: 'Informe demanda, cliente e prestador.' });
+    if (![body.customerId, body.providerId].includes(request.authUser!.id)) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta conversa.' });
+    const db = await getDatabase();
+    const demand = db ? await db.collection<{ id: string; requesterId: string }>('demands').findOne({ id: body.demandId }) : memoryStore.demands.find((item) => item.id === body.demandId);
+    if (!demand || demand.requesterId !== body.customerId) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'A conversa deve pertencer à demanda e ao cliente informado.' });
     const existing = (await listConversations(body)).find((item) => item.demandId === body.demandId && item.customerId === body.customerId && item.providerId === body.providerId);
     if (existing) return existing;
     const now = new Date().toISOString();
@@ -63,25 +72,27 @@ export async function registerChatRoutes(app: FastifyInstance) {
     return reply.code(201).send(conversation);
   });
 
-  app.get<{ Params: { id: string } }>('/api/v1/conversations/:id/messages', async (request, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/conversations/:id/messages', { preHandler: requireAuth }, async (request, reply) => {
     const conversation = await findConversation(request.params.id);
     if (!conversation) return reply.code(404).send({ error: 'CONVERSATION_NOT_FOUND', message: 'Conversa não encontrada.' });
+    if (![conversation.customerId, conversation.providerId].includes(request.authUser!.id)) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta conversa.' });
     return listMessages(conversation.id);
   });
 
-  app.post<{ Body: CreateMessageInput & Partial<Pick<ChatMessage, 'id' | 'createdAt'>> }>('/api/v1/messages', async (request, reply) => {
+  app.post<{ Body: Omit<CreateMessageInput, 'senderId'> & Partial<Pick<ChatMessage, 'id' | 'createdAt'>> }>('/api/v1/messages', { preHandler: requireAuth }, async (request, reply) => {
     const body = request.body;
-    if (!body?.conversationId || !body.senderId || !body.text?.trim()) return reply.code(400).send({ error: 'INVALID_MESSAGE', message: 'A mensagem não pode ficar vazia.' });
+    const senderId = request.authUser!.id;
+    if (!body?.conversationId || !body.text?.trim()) return reply.code(400).send({ error: 'INVALID_MESSAGE', message: 'A mensagem não pode ficar vazia.' });
     const conversation = await findConversation(body.conversationId);
     if (!conversation) return reply.code(404).send({ error: 'CONVERSATION_NOT_FOUND', message: 'Conversa não encontrada.' });
-    if (![conversation.customerId, conversation.providerId].includes(body.senderId)) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta conversa.' });
+    if (![conversation.customerId, conversation.providerId].includes(senderId)) return reply.code(403).send({ error: 'NOT_ALLOWED', message: 'Usuário não participa desta conversa.' });
 
     const now = new Date().toISOString();
-    const message: ChatMessage = { id: body.id ?? id('msg'), conversationId: conversation.id, senderId: body.senderId, text: body.text.trim(), createdAt: body.createdAt ?? now };
+    const message: ChatMessage = { id: body.id ?? id('msg'), conversationId: conversation.id, senderId, text: body.text.trim(), createdAt: body.createdAt ?? now };
     await persistMessage(message);
     await persistConversation({ ...conversation, updatedAt: now, lastMessageAt: now });
-    const recipientId = body.senderId === conversation.customerId ? conversation.providerId : conversation.customerId;
-    broadcastRealtime({ type: 'message.created', conversationId: conversation.id, demandId: conversation.demandId, actorUserId: body.senderId, at: now });
+    const recipientId = senderId === conversation.customerId ? conversation.providerId : conversation.customerId;
+    broadcastRealtime({ type: 'message.created', conversationId: conversation.id, demandId: conversation.demandId, actorUserId: senderId, at: now });
     await sendPushToUsers([recipientId], { title: 'Nova mensagem no Rubli', body: message.text.slice(0, 120), data: { type: 'message', conversationId: conversation.id, demandId: conversation.demandId } });
     return reply.code(201).send(message);
   });

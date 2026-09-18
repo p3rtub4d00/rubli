@@ -1,59 +1,51 @@
 import type { FastifyInstance } from 'fastify';
-import { distanceKm, isValidCoordinates } from '@rubli/shared';
+import type { Demand, Proposal } from '@rubli/shared';
+import { getDatabase } from '../store/database.js';
 import { memoryStore } from '../store/memoryStore.js';
+import { matchingDemandsForProvider } from '../services/matching.js';
+import { requireRole } from './auth.js';
+import { demandForUser } from '../services/demandPrivacy.js';
 
-const DEFAULT_RADIUS_KM = 10;
-const MAX_RADIUS_KM = 100;
+async function proposalsForPrivacy() {
+  const db = await getDatabase();
+  return db ? db.collection<Proposal>('proposals').find({}).toArray() : memoryStore.proposals;
+}
 
 export async function registerNearbyRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: { latitude?: string; longitude?: string; radiusKm?: string; type?: string; urgentOnly?: string } }>(
+  app.get('/api/v1/providers/me/opportunities', { preHandler: requireRole('provider') }, async (request) => {
+    const provider = request.authUser!;
+    const db = await getDatabase();
+    const demands = db ? await db.collection<Demand>('demands').find({}).toArray() : memoryStore.demands;
+    const [results, proposals] = await Promise.all([matchingDemandsForProvider(provider, demands), proposalsForPrivacy()]);
+    const hasLocation = provider.serviceLatitude !== undefined && provider.serviceLongitude !== undefined;
+    return {
+      locationRequired: !hasLocation,
+      radiusKm: provider.serviceRadiusKm ?? 10,
+      items: results.map((item) => ({ ...demandForUser(item.demand, provider, proposals), distanceKm: Math.round(item.distanceKm * 10) / 10 })),
+    };
+  });
+
+  app.get<{ Querystring: { type?: string; urgentOnly?: string } }>(
     '/api/v1/demands/nearby',
-    async (request, reply) => {
-      const latitude = Number(request.query.latitude);
-      const longitude = Number(request.query.longitude);
-      const radiusKm = Math.min(
-        Math.max(Number(request.query.radiusKm) || DEFAULT_RADIUS_KM, 1),
-        MAX_RADIUS_KM,
-      );
-
-      if (!isValidCoordinates(latitude, longitude)) {
-        return reply.code(400).send({
-          error: 'INVALID_COORDINATES',
-          message: 'Informe latitude e longitude válidas.',
-        });
-      }
-
-      const type = request.query.type;
-      const urgentOnly = request.query.urgentOnly === 'true';
-
-      const results = memoryStore.demands
-        .filter((demand) => demand.status === 'open' || demand.status === 'negotiating')
-        .filter((demand) => !type || demand.type === type)
-        .filter((demand) => !urgentOnly || demand.isUrgent === true)
-        .filter((demand) => isValidCoordinates(demand.latitude, demand.longitude))
-        .map((demand) => ({
-          demand,
-          distanceKm: distanceKm(
-            { latitude, longitude },
-            { latitude: demand.latitude!, longitude: demand.longitude! },
-          ),
-        }))
-        .filter((item) => item.distanceKm <= radiusKm)
-        .sort((a, b) => {
-          if (Boolean(b.demand.isUrgent) !== Boolean(a.demand.isUrgent)) {
-            return Number(Boolean(b.demand.isUrgent)) - Number(Boolean(a.demand.isUrgent));
-          }
-          return a.distanceKm - b.distanceKm;
-        });
+    { preHandler: requireRole('provider') },
+    async (request) => {
+      // Compatibilidade para clientes antigos: não confiamos mais em
+      // coordenadas recebidas pela query. O centro vem do perfil autenticado.
+      const provider = request.authUser!;
+      const db = await getDatabase();
+      const demands = db ? await db.collection<Demand>('demands').find({}).toArray() : memoryStore.demands;
+      const [matches, proposals] = await Promise.all([matchingDemandsForProvider(provider, demands), proposalsForPrivacy()]);
+      const results = matches
+        .filter((match) => !request.query.type || match.demand.type === request.query.type)
+        .filter((match) => request.query.urgentOnly !== 'true' || match.demand.isUrgent === true);
 
       return {
-        center: { latitude, longitude },
-        radiusKm,
+        center: provider.serviceLatitude !== undefined && provider.serviceLongitude !== undefined
+          ? { latitude: provider.serviceLatitude, longitude: provider.serviceLongitude }
+          : null,
+        radiusKm: provider.serviceRadiusKm ?? 10,
         count: results.length,
-        items: results.map((item) => ({
-          ...item.demand,
-          distanceKm: Math.round(item.distanceKm * 10) / 10,
-        })),
+        items: results.map((item) => ({ ...demandForUser(item.demand, provider, proposals), distanceKm: Math.round(item.distanceKm * 10) / 10 })),
       };
     },
   );

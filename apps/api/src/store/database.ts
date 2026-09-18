@@ -30,6 +30,12 @@ export async function ensureDatabaseIndexes() {
     database.collection('auth_users').createIndex({ email: 1 }, { unique: true }),
     database.collection('support_tickets').createIndex({ id: 1 }, { unique: true }),
     database.collection('support_tickets').createIndex({ status: 1, createdAt: -1 }),
+    database.collection('cancellation_requests').createIndex({ id: 1 }, { unique: true }),
+    database.collection('cancellation_requests').createIndex({ demandId: 1, createdAt: -1 }),
+    database.collection('disputes').createIndex({ id: 1 }, { unique: true }),
+    database.collection('disputes').createIndex({ demandId: 1, updatedAt: -1 }),
+    database.collection('schedule_changes').createIndex({ id: 1 }, { unique: true }),
+    database.collection('schedule_changes').createIndex({ demandId: 1, createdAt: -1 }),
   ]);
 }
 

@@ -1,8 +1,33 @@
 export type UserRole = 'customer' | 'provider' | 'courier' | 'admin';
+/** Modalidade única do prestador. Multi-modalidade será tratada em etapa futura. */
+export type ProviderType = 'services' | 'courier' | 'freight';
+export type CourierVehicleType = 'motorcycle' | 'bicycle' | 'car';
+export type FreightVehicleType = 'utility' | 'pickup' | 'van' | 'small_truck' | 'truck';
+export type ProviderVehicle = {
+    type: CourierVehicleType | FreightVehicleType;
+    brand?: string;
+    model?: string;
+    /** Dado privado: nunca deve ser exposto em perfil público. */
+    plate?: string;
+    loadCapacityKg?: number;
+};
 export type ProviderPlan = 'standard' | 'premium_verified';
 export type ProviderVerificationStatus = 'not_requested' | 'pending' | 'simulated_verified';
 export type DemandType = 'service' | 'purchase' | 'delivery' | 'freight';
 export type DemandStatus = 'draft' | 'open' | 'negotiating' | 'accepted' | 'provider_en_route' | 'provider_arrived' | 'in_progress' | 'awaiting_customer_confirmation' | 'completed' | 'cancelled';
+/** Endereço operacional de uma demanda presencial. Nunca é público por padrão. */
+export interface ServiceAddress {
+    postalCode: string;
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    reference?: string;
+    latitude: number;
+    longitude: number;
+}
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
 export type ProposalSide = 'customer' | 'provider';
 export interface User {
@@ -17,8 +42,16 @@ export interface User {
     issuesInvoice?: boolean;
     professionalTitle?: string;
     role: UserRole;
+    /** Obrigatório para novas contas provider; ausente apenas em registros legados. */
+    providerType?: ProviderType;
+    providerVehicle?: ProviderVehicle;
     serviceRadiusKm?: number;
     serviceCategories?: string[];
+    /** IDs estáveis do catálogo; serviceCategories é preservado para exibição e legado. */
+    serviceCategoryIds?: string[];
+    /** Coordenada operacional usada somente pelo servidor para o matching. */
+    serviceLatitude?: number;
+    serviceLongitude?: number;
     bio?: string;
     city?: string;
     avatarUri?: string;
@@ -38,11 +71,18 @@ export interface Demand {
     title: string;
     description: string;
     category: string;
+    /** ID estável da categoria do catálogo quando a demanda foi criada após a migração. */
+    categoryId?: string;
     budgetType: 'fixed' | 'negotiable' | 'open';
     budget?: number;
     locationLabel: string;
     latitude?: number;
     longitude?: number;
+    /** Dados completos, disponíveis somente ao cliente, administração e prestador contratado. */
+    serviceAddress?: ServiceAddress;
+    /** Coleta e destino para entrega/frete. Mantidos separados para evolução logística. */
+    pickupAddress?: ServiceAddress;
+    dropoffAddress?: ServiceAddress;
     isUrgent?: boolean;
     photoUris?: string[];
     status: DemandStatus;
@@ -55,6 +95,12 @@ export interface Demand {
     completionRequestedAt?: string;
     customerConfirmedCompletionAt?: string;
     completedAt?: string;
+    scheduledAt?: string;
+    scheduleStatus?: 'pending' | 'confirmed';
+    scheduleProposedBy?: string;
+    scheduleCustomerConfirmedAt?: string;
+    scheduleProviderConfirmedAt?: string;
+    scheduleUpdatedAt?: string;
 }
 export interface Proposal {
     id: string;
@@ -115,6 +161,45 @@ export interface Rating {
     comment?: string;
     createdAt: string;
 }
+export type CancellationReason = 'provider_no_show' | 'customer_unavailable' | 'service_not_feasible' | 'conditions_different' | 'mutual_agreement' | 'other';
+export type CancellationRequestStatus = 'pending_confirmation' | 'accepted' | 'refused' | 'dispute_opened';
+export interface CancellationRequest {
+    id: string;
+    demandId: string;
+    requestedBy: string;
+    reason: CancellationReason;
+    description?: string;
+    createdAt: string;
+    status: CancellationRequestStatus;
+    respondedBy?: string;
+    respondedAt?: string;
+    responseNote?: string;
+}
+export type DisputeStatus = 'open' | 'under_review' | 'resolved' | 'closed';
+export interface Dispute {
+    id: string;
+    demandId: string;
+    openedBy: string;
+    againstUserId: string;
+    reason: string;
+    description: string;
+    status: DisputeStatus;
+    createdAt: string;
+    updatedAt: string;
+    cancellationRequestId?: string;
+    resolution?: string;
+    resolvedBy?: string;
+}
+export interface ScheduleChange {
+    id: string;
+    demandId: string;
+    scheduledAt: string;
+    action: 'proposed' | 'counter_proposed' | 'confirmed';
+    proposedBy: string;
+    createdAt: string;
+    customerConfirmedAt?: string;
+    providerConfirmedAt?: string;
+}
 export interface ServiceRating {
     id: string;
     demandId: string;
@@ -131,5 +216,6 @@ export declare const DEMAND_CATEGORIES: {
     readonly freight: readonly ["Mudança", "Móveis", "Materiais", "Carga leve", "Carga pesada", "Outros"];
 };
 export { distanceKm, isValidCoordinates } from './geo.js';
+export { normalizeCategoryKey } from './categories.js';
 export { canProviderSubmitProposal, isProviderSubscriptionActive } from './subscription.js';
 export type { ProviderSubscription, ProviderSubscriptionPlan, ProviderSubscriptionStatus } from './subscription.js';

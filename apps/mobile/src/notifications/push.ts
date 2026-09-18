@@ -42,6 +42,6 @@ export async function registerForPushNotifications(user: User) {
   const token = tokenResponse.data;
   if (!token) return null;
 
-  await apiRegisterPushToken({ userId: user.id, role: user.role, token });
+  await apiRegisterPushToken({ token });
   return token;
 }

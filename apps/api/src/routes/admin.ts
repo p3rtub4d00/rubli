@@ -2,26 +2,36 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import type { Demand, Proposal, Rating, User } from '@rubli/shared';
+import type { CancellationRequest, Demand, Dispute, Proposal, Rating, User } from '@rubli/shared';
 import { getDatabase } from '../store/database.js';
 import { memoryStore } from '../store/memoryStore.js';
 import { getManagedCategories, saveManagedCategory, type ManagedCategory } from '../store/categories.js';
 import { broadcastRealtime } from '../realtime.js';
 import type { SupportTicket } from './support.js';
+import { authenticatedUserFromToken } from './auth.js';
+import { updateDisputeByAdmin } from './cancellations.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(here, '../../public/admin');
 const docsDir = join(here, '../../../../docs');
 const adminKey = () => process.env.RUBLI_ADMIN_KEY || (process.env.NODE_ENV === 'production' ? '' : 'rubli-admin-local');
 type AdminUser = { id: string; name?: string; email?: string; phone?: string; role: string; suspended?: boolean; source: string };
-async function authorize(request: FastifyRequest, reply: FastifyReply) { const key = request.headers['x-rubli-admin-key']; if (!adminKey() || key !== adminKey()) { await reply.code(401).send({ error: 'ADMIN_UNAUTHORIZED', message: 'Acesso administrativo não autorizado.' }); return false; } return true; }
+async function authorize(request: FastifyRequest, reply: FastifyReply) {
+  const token = request.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const tokenUser = await authenticatedUserFromToken(token);
+  if (tokenUser?.role === 'admin') return true;
+  const key = request.headers['x-rubli-admin-key'];
+  if (!adminKey() || key !== adminKey()) { await reply.code(401).send({ error: 'ADMIN_UNAUTHORIZED', message: 'Acesso administrativo não autorizado.' }); return false; }
+  return true;
+}
 async function records<T>(collection: string, fallback: T[]) { const db = await getDatabase(); return db ? db.collection(collection).find({}).toArray() as Promise<T[]> : fallback; }
 async function audit(action: string, detail: Record<string, unknown>) { const item = { id: `adm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, action, detail, createdAt: new Date().toISOString() }; const db = await getDatabase(); if (db) await db.collection('admin_audit').insertOne(item); }
 async function purgeCollections(names: string[]) {
   const db = await getDatabase();
   if (db) {
-    const counts = await Promise.all(names.map(async (name) => [name, await db.collection(name).countDocuments()] as const));
-    await Promise.all(names.map((name) => db.collection(name).deleteMany({})));
+    const databaseNames = names.filter((name) => name !== 'cancellationRequests');
+    const counts = await Promise.all(databaseNames.map(async (name) => [name, await db.collection(name).countDocuments()] as const));
+    await Promise.all(databaseNames.map((name) => db.collection(name).deleteMany({})));
     return Object.fromEntries(counts);
   }
   const memoryCounts: Record<string, number> = {};
@@ -47,7 +57,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post<{ Body: { confirmation?: string } }>('/api/v1/admin/purge/demands', async (request, reply) => {
     if (!await authorize(request, reply)) return;
     if (request.body?.confirmation !== 'EXCLUIR CHAMADOS') return reply.code(400).send({ error: 'CONFIRMATION_REQUIRED', message: 'Digite EXCLUIR CHAMADOS para confirmar esta ação.' });
-    const deleted = await purgeCollections(['demands', 'proposals', 'conversations', 'messages', 'ratings']);
+    const deleted = await purgeCollections(['demands', 'proposals', 'conversations', 'messages', 'ratings', 'cancellationRequests', 'disputes', 'cancellation_requests']);
     await audit('data.demands_purged', { deleted });
     broadcastRealtime({ type: 'admin.data_purged', scope: 'demands', at: new Date().toISOString() });
     return { deleted };
@@ -55,13 +65,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post<{ Body: { confirmation?: string } }>('/api/v1/admin/purge/users', async (request, reply) => {
     if (!await authorize(request, reply)) return;
     if (request.body?.confirmation !== 'EXCLUIR USUÁRIOS') return reply.code(400).send({ error: 'CONFIRMATION_REQUIRED', message: 'Digite EXCLUIR USUÁRIOS para confirmar esta ação.' });
-    const deleted = await purgeCollections(['users', 'auth_users', 'push_tokens', 'admin_user_state', 'demands', 'proposals', 'conversations', 'messages', 'ratings', 'support_tickets']);
+    const deleted = await purgeCollections(['users', 'auth_users', 'push_tokens', 'admin_user_state', 'demands', 'proposals', 'conversations', 'messages', 'ratings', 'support_tickets', 'cancellationRequests', 'disputes', 'cancellation_requests']);
     await audit('data.users_purged', { deleted });
     broadcastRealtime({ type: 'admin.data_purged', scope: 'users', at: new Date().toISOString() });
     return { deleted };
   });
   app.get('/api/v1/admin/proposals', async (request, reply) => { if (!await authorize(request, reply)) return; return records<Proposal>('proposals', memoryStore.proposals); });
   app.get('/api/v1/admin/ratings', async (request, reply) => { if (!await authorize(request, reply)) return; return records<Rating>('ratings', memoryStore.ratings); });
+  app.get('/api/v1/admin/cancellation-requests', async (request, reply) => { if (!await authorize(request, reply)) return; const db = await getDatabase(); return db ? db.collection<CancellationRequest>('cancellation_requests').find({}).sort({ createdAt: -1 }).toArray() : memoryStore.cancellationRequests; });
+  app.get('/api/v1/admin/disputes', async (request, reply) => { if (!await authorize(request, reply)) return; const db = await getDatabase(); return db ? db.collection<Dispute>('disputes').find({}).sort({ updatedAt: -1 }).toArray() : memoryStore.disputes; });
+  app.patch<{ Params: { id: string }; Body: { status?: Dispute['status']; resolution?: string } }>('/api/v1/admin/disputes/:id', async (request, reply) => { if (!await authorize(request, reply)) return; const status = request.body?.status; if (!status || !['under_review', 'resolved', 'closed'].includes(status)) return reply.code(400).send({ error: 'INVALID_DISPUTE_STATUS' }); const updated = await updateDisputeByAdmin(request.params.id, status, request.body?.resolution, request.authUser?.id); if (!updated) return reply.code(404).send({ error: 'DISPUTE_NOT_FOUND' }); await audit('dispute.updated', { disputeId: updated.id, status }); return updated; });
   app.get('/api/v1/admin/support/tickets', async (request, reply) => { if (!await authorize(request, reply)) return; const db = await getDatabase(); return db ? db.collection<SupportTicket>('support_tickets').find({}).sort({ createdAt: -1 }).toArray() : []; });
   app.patch<{ Params: { id: string }; Body: { status?: SupportTicket['status'] } }>('/api/v1/admin/support/tickets/:id', async (request, reply) => { if (!await authorize(request, reply)) return; const status = request.body?.status; if (!status || !['open', 'in_progress', 'resolved'].includes(status)) return reply.code(400).send({ error: 'INVALID_TICKET_STATUS' }); const db = await getDatabase(); if (!db) return reply.code(503).send({ error: 'PERSISTENCE_REQUIRED', message: 'O suporte administrativo requer o banco de dados configurado.' }); const ticket = await db.collection<SupportTicket>('support_tickets').findOne({ id: request.params.id }); if (!ticket) return reply.code(404).send({ error: 'TICKET_NOT_FOUND' }); const now = new Date().toISOString(); const next = { ...ticket, status, statusHistory: [...(ticket.statusHistory ?? [{ status: ticket.status, at: ticket.createdAt }]), { status, at: now }], updatedAt: now }; await db.collection<SupportTicket>('support_tickets').replaceOne({ id: ticket.id }, next); await audit('support.ticket_updated', { ticketId: ticket.id, status }); return next; });
   app.get('/api/v1/admin/categories', async (request, reply) => { if (!await authorize(request, reply)) return; return getManagedCategories(true); });

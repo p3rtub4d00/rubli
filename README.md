@@ -70,3 +70,7 @@ rubli/
 - Código modular e tipado.
 - Nenhuma regra financeira crítica somente no aplicativo: decisões sensíveis ficam no backend.
 - Preparado para escalar sem reescrever a base do produto.
+
+## Segurança de sessão
+
+O mobile usa access token de curta duração e refresh token rotativo. As rotas que alteram dados identificam o usuário pelo token, nunca por um `userId` enviado pelo aplicativo. Consulte [a documentação de autenticação](docs/AUTENTICACAO.md) para os endpoints, expirações e configuração de produção.

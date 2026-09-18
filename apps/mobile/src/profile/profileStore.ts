@@ -22,7 +22,7 @@ export async function getRatings(): Promise<Rating[]> {
 }
 
 export async function saveRating(rating: Rating) {
-  const saved = await apiCreateRating({ demandId: rating.demandId, fromUserId: rating.fromUserId, stars: rating.stars, comment: rating.comment });
+  const saved = await apiCreateRating({ demandId: rating.demandId, stars: rating.stars, comment: rating.comment });
   const ratings = await getRatings();
   const next = [saved, ...ratings.filter((item) => item.id !== saved.id)];
   await AsyncStorage.setItem(RATINGS_KEY, JSON.stringify(next));

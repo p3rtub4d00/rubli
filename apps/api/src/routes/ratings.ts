@@ -3,6 +3,7 @@ import type { Demand, Rating } from '@rubli/shared';
 import { getDatabase } from '../store/database.js';
 import { memoryStore } from '../store/memoryStore.js';
 import { broadcastRealtime } from '../realtime.js';
+import { requireAuth } from './auth.js';
 
 const ratingsCollection = 'ratings';
 
@@ -15,9 +16,10 @@ async function listRatings() {
 export async function registerRatingRoutes(app: FastifyInstance) {
   app.get('/api/v1/ratings', async () => listRatings());
 
-  app.post<{ Body: { demandId?: string; fromUserId?: string; stars?: number; comment?: string } }>('/api/v1/ratings', async (request, reply) => {
-    const { demandId, fromUserId, stars, comment } = request.body ?? {};
-    if (!demandId || !fromUserId || typeof stars !== 'number' || !Number.isInteger(stars) || stars < 1 || stars > 5) return reply.code(400).send({ error: 'INVALID_RATING', message: 'Informe demanda, avaliador e nota de 1 a 5.' });
+  app.post<{ Body: { demandId?: string; stars?: number; comment?: string } }>('/api/v1/ratings', { preHandler: requireAuth }, async (request, reply) => {
+    const { demandId, stars, comment } = request.body ?? {};
+    const fromUserId = request.authUser!.id;
+    if (!demandId || typeof stars !== 'number' || !Number.isInteger(stars) || stars < 1 || stars > 5) return reply.code(400).send({ error: 'INVALID_RATING', message: 'Informe demanda e nota de 1 a 5.' });
     if (comment && comment.trim().length > 1000) return reply.code(400).send({ error: 'COMMENT_TOO_LONG', message: 'O comentário pode ter até 1000 caracteres.' });
     const db = await getDatabase();
     const demand = db ? await db.collection<Demand>('demands').findOne({ id: demandId }) : memoryStore.demands.find((item) => item.id === demandId);

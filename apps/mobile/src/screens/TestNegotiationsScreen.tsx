@@ -104,7 +104,7 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
       throw new Error('Proposta inválida.');
     }
 
-    const result = await apiAcceptProposal(proposal.id, user.id);
+    const result = await apiAcceptProposal(proposal.id);
     const nextProposals = proposals.map((item) => item.id === result.proposal.id ? result.proposal : item);
     const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
 
@@ -117,7 +117,7 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
   async function confirmProvider(proposal: Proposal) {
     if (proposal.status !== 'pending' && proposal.status !== 'accepted') throw new Error('A proposta não pode ser confirmada.');
 
-    const result = await apiConfirmProposal(proposal.id, user.id);
+    const result = await apiConfirmProposal(proposal.id);
     const nextProposals = proposals.map((item) => item.id === result.proposal.id ? result.proposal : item);
     const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
 
@@ -148,7 +148,7 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
       throw new Error('Sem permissão.');
     }
 
-    const result = await apiCounterProposal(proposal.id, { userId: user.id, amount, message });
+    const result = await apiCounterProposal(proposal.id, { amount, message });
     const nextProposals = proposals.map((item) => item.id === proposal.id ? result.supersededProposal : item);
     nextProposals.unshift(result.proposal);
     const nextDemands = demands.map((item) => item.id === result.demand.id ? result.demand : item);
@@ -161,7 +161,7 @@ export function TestNegotiationsScreen({ user, profiles, onClose }: Props) {
 
   async function updateServiceStage(demand: Demand, action: 'en_route' | 'arrived' | 'start' | 'request_confirmation' | 'confirm_completion'): Promise<Demand> {
     const remoteAction = action === 'request_confirmation' ? 'request_completion' : action;
-    const updated = await apiServiceAction(demand.id, { userId: user.id, action: remoteAction });
+    const updated = await apiServiceAction(demand.id, { action: remoteAction });
     const nextDemands = demands.map((item) => item.id === updated.id ? updated : item);
     await saveDemands(nextDemands);
     setDemands(nextDemands.filter(isOperationalDemand));

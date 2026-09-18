@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { Demand, Rating, User } from '@rubli/shared';
 import { apiCreateRating } from '../api/client';
+import { FormField } from '../shared/components/FormField';
 
 interface Props {
   visible: boolean;
@@ -28,7 +29,7 @@ export function CompletionRatingModal({ visible, demand, user, onClose, onSaved 
     if (!demand || saving) return;
     setSaving(true);
     try {
-      await apiCreateRating({ demandId: demand.id, fromUserId: user.id, stars, comment: comment.trim() || undefined });
+      await apiCreateRating({ demandId: demand.id, stars, comment: comment.trim() || undefined });
       await onSaved();
       onClose();
     } catch (error) {
@@ -47,7 +48,7 @@ export function CompletionRatingModal({ visible, demand, user, onClose, onSaved 
         <Text style={styles.title}>Como foi sua experiência?</Text>
         <Text style={styles.text}>Avalie o {targetLabel} e deixe um comentário para ajudar a comunidade Rubli.</Text>
         <View style={styles.stars}>{([1, 2, 3, 4, 5] as const).map((value) => <TouchableOpacity key={value} onPress={() => setStars(value)} accessibilityLabel={`${value} estrela${value > 1 ? 's' : ''}`}><Text style={[styles.star, value <= stars && styles.starSelected]}>★</Text></TouchableOpacity>)}</View>
-        <TextInput value={comment} onChangeText={setComment} placeholder="Conte como foi o serviço (opcional)" multiline maxLength={1000} style={styles.comment} />
+        <FormField label="Comentário" optional value={comment} onChangeText={setComment} placeholder="Conte como foi o serviço" multiline maxLength={1000} />
         <TouchableOpacity style={styles.primary} onPress={() => submit().catch(() => undefined)} disabled={saving}><Text style={styles.primaryText}>{saving ? 'Enviando...' : 'Enviar avaliação'}</Text></TouchableOpacity>
         <TouchableOpacity style={styles.later} onPress={onClose} disabled={saving}><Text style={styles.laterText}>Avaliar depois</Text></TouchableOpacity>
       </View>

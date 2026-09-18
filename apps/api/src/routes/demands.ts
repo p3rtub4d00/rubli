@@ -1,11 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import type { Demand, DemandType } from '@rubli/shared';
+import type { Demand, DemandType, Proposal, ServiceAddress } from '@rubli/shared';
 import { DEMAND_CATEGORIES } from '@rubli/shared';
 import { memoryStore } from '../store/memoryStore.js';
 import { getDatabase } from '../store/database.js';
 import { broadcastRealtime } from '../realtime.js';
-import { sendPushToRoles, sendPushToUsers } from '../push.js';
-import { isAllowedCategory } from '../store/categories.js';
+import { sendPushToUsers } from '../push.js';
+import { resolveManagedCategory } from '../store/categories.js';
+import { requireAuth, requireRole } from './auth.js';
+import { matchProviderToDemand, matchingDemandsForProvider, matchingProvidersForDemand } from '../services/matching.js';
+import { demandForUser } from '../services/demandPrivacy.js';
 
 const demandTypes: DemandType[] = ['service', 'purchase', 'delivery', 'freight'];
 const collectionName = 'demands';
@@ -15,6 +18,17 @@ async function listDemands() {
   const db = await getDatabase();
   if (!db) return [...memoryStore.demands];
   return db.collection<Demand>(collectionName).find({}).sort({ createdAt: -1 }).toArray();
+}
+async function listAllProposals() {
+  const db = await getDatabase();
+  return db ? db.collection<Proposal>('proposals').find({}).toArray() : memoryStore.proposals;
+}
+function validAddress(value: unknown): value is ServiceAddress {
+  if (!value || typeof value !== 'object') return false;
+  const address = value as Partial<ServiceAddress>;
+  return ['postalCode', 'street', 'number', 'neighborhood', 'city', 'state'].every((key) => typeof address[key as keyof ServiceAddress] === 'string' && String(address[key as keyof ServiceAddress]).trim())
+    && typeof address.latitude === 'number' && Number.isFinite(address.latitude) && address.latitude >= -90 && address.latitude <= 90
+    && typeof address.longitude === 'number' && Number.isFinite(address.longitude) && address.longitude >= -180 && address.longitude <= 180;
 }
 function mergeDemandStatus(existing: Demand['status'] | undefined, incoming: Demand['status']) { if (!existing || existing === 'cancelled' || incoming === 'cancelled') return incoming; return statusRank[incoming] >= statusRank[existing] ? incoming : existing; }
 
@@ -30,12 +44,27 @@ function stageText(status: Demand['status']) {
 }
 
 export async function registerDemandRoutes(app: FastifyInstance) {
-  app.get('/api/v1/demands', async () => listDemands());
+  app.get('/api/v1/demands', { preHandler: requireAuth }, async (request) => {
+    const [all, proposals] = await Promise.all([listDemands(), listAllProposals()]);
+    const user = request.authUser!;
+    if (user.role === 'customer') return all.filter((demand) => demand.requesterId === user.id).map((demand) => demandForUser(demand, user, proposals));
+    if (user.role === 'provider') {
+      // Serviços já contratados permanecem acessíveis mesmo quando o prestador
+      // estiver indisponível; apenas novas oportunidades passam pelo matching.
+      const contracted = all.filter((demand) => demand.acceptedProviderId === user.id);
+      const opportunities = (await matchingDemandsForProvider(user, all)).map((match) => match.demand);
+      return [...contracted, ...opportunities.filter((demand) => !contracted.some((item) => item.id === demand.id))].map((demand) => demandForUser(demand, user, proposals));
+    }
+    return [];
+  });
 
-  app.post<{ Body: Partial<Demand> }>('/api/v1/demands', async (request, reply) => {
+  app.post<{ Body: Partial<Demand> }>('/api/v1/demands', { preHandler: requireRole('customer') }, async (request, reply) => {
     const body = request.body ?? {};
-    if (!body.id || !body.requesterId || !body.type || !demandTypes.includes(body.type) || !body.title || !body.description || !body.category || !body.locationLabel) return reply.code(400).send({ error: 'INVALID_DEMAND', message: 'Dados obrigatórios da demanda não foram preenchidos.' });
-    if (!await isAllowedCategory(body.type as DemandType, body.category)) return reply.code(400).send({ error: 'INVALID_CATEGORY', message: 'Categoria incompatível com o tipo da demanda.' });
+    if (!body.id || !body.type || !demandTypes.includes(body.type) || !body.title || !body.description || !body.category || !body.locationLabel) return reply.code(400).send({ error: 'INVALID_DEMAND', message: 'Dados obrigatórios da demanda não foram preenchidos.' });
+    if (body.type === 'service' && !validAddress(body.serviceAddress)) return reply.code(400).send({ error: 'INVALID_SERVICE_ADDRESS', message: 'Informe o endereço completo e uma localização válida onde o serviço será realizado.' });
+    if (['delivery', 'freight'].includes(body.type) && (!validAddress(body.pickupAddress) || !validAddress(body.dropoffAddress))) return reply.code(400).send({ error: 'INVALID_ROUTE', message: 'Informe os endereços completos de coleta e destino, com localização válida.' });
+    const managedCategory = await resolveManagedCategory(body.type as DemandType, body.category);
+    if (!managedCategory) return reply.code(400).send({ error: 'INVALID_CATEGORY', message: 'Categoria incompatível com o tipo da demanda.' });
     const photoUris = Array.isArray(body.photoUris) ? body.photoUris.filter((item): item is string => typeof item === 'string') : [];
     if (photoUris.length > 5 || photoUris.some((item) => item.length > 2_000_000) || photoUris.reduce((total, item) => total + item.length, 0) > 8_000_000) {
       return reply.code(413).send({ error: 'PHOTOS_TOO_LARGE', message: 'Envie no máximo 5 fotos, totalizando até 6 MB.' });
@@ -47,7 +76,16 @@ export async function registerDemandRoutes(app: FastifyInstance) {
 
     const now = new Date().toISOString();
     // A criação nunca pode carregar estado contratado ou de execução vindo do aparelho.
-    const demand: Demand = { id: body.id, requesterId: body.requesterId, type: body.type, title: body.title.trim(), description: body.description.trim(), category: body.category, budgetType: body.budget ? 'fixed' : 'open', budget: typeof body.budget === 'number' ? body.budget : undefined, locationLabel: body.locationLabel.trim(), latitude: body.latitude, longitude: body.longitude, isUrgent: body.isUrgent === true, photoUris, status: 'open', createdAt: now, updatedAt: now };
+    const serviceAddress = validAddress(body.serviceAddress) ? { ...body.serviceAddress, postalCode: body.serviceAddress.postalCode.trim(), street: body.serviceAddress.street.trim(), number: body.serviceAddress.number.trim(), neighborhood: body.serviceAddress.neighborhood.trim(), city: body.serviceAddress.city.trim(), state: body.serviceAddress.state.trim().toUpperCase(), complement: body.serviceAddress.complement?.trim() || undefined, reference: body.serviceAddress.reference?.trim() || undefined } : undefined;
+    const pickupAddress = validAddress(body.pickupAddress) ? body.pickupAddress : undefined;
+    const dropoffAddress = validAddress(body.dropoffAddress) ? body.dropoffAddress : undefined;
+    const demand: Demand = { id: body.id, requesterId: request.authUser!.id, type: body.type, title: body.title.trim(), description: body.description.trim(), category: managedCategory.name, categoryId: managedCategory.id, budgetType: body.budget ? 'fixed' : 'open', budget: typeof body.budget === 'number' ? body.budget : undefined, locationLabel: serviceAddress ? `${serviceAddress.neighborhood} · ${serviceAddress.city} - ${serviceAddress.state}` : pickupAddress ? `${pickupAddress.neighborhood} → ${dropoffAddress!.neighborhood}` : body.locationLabel.trim(), latitude: serviceAddress?.latitude ?? pickupAddress?.latitude ?? body.latitude, longitude: serviceAddress?.longitude ?? pickupAddress?.longitude ?? body.longitude, serviceAddress, pickupAddress, dropoffAddress, isUrgent: body.isUrgent === true, photoUris, status: 'open', createdAt: now, updatedAt: now, targetProviderId: typeof body.targetProviderId === 'string' ? body.targetProviderId : undefined };
+
+    if (demand.targetProviderId) {
+      if (demand.targetProviderId === demand.requesterId) return reply.code(400).send({ error: 'INVALID_TARGET_PROVIDER', message: 'Você não pode direcionar uma solicitação para si mesmo.' });
+      const target = db ? await db.collection<import('@rubli/shared').User>('users').findOne({ id: demand.targetProviderId }) : memoryStore.users.find((user) => user.id === demand.targetProviderId);
+      if (!target || target.role !== 'provider' || !matchProviderToDemand(target, demand).eligible) return reply.code(400).send({ error: 'INVALID_TARGET_PROVIDER', message: 'Esse profissional não está apto para esta solicitação.' });
+    }
 
     let merged: Demand;
     let existing: Demand | undefined;
@@ -65,13 +103,16 @@ export async function registerDemandRoutes(app: FastifyInstance) {
     }
 
     const eventAt = new Date().toISOString();
-    broadcastRealtime({ type: created ? 'demand.created' : 'demand.updated', demandId: merged.id, actorUserId: merged.requesterId, at: eventAt });
 
     if (created) {
-      const title = merged.isUrgent ? '⚡ Novo chamado urgente' : '🔔 Novo chamado disponível';
+      const matches = merged.targetProviderId ? (await matchingProvidersForDemand(merged)).filter((match) => match.provider.id === merged.targetProviderId) : await matchingProvidersForDemand(merged);
+      const providerIds = matches.map((match) => match.provider.id);
+      void broadcastRealtime({ type: 'demand.created', demandId: merged.id, actorUserId: merged.requesterId, at: eventAt }, providerIds);
+      const title = merged.targetProviderId ? '🔔 Nova solicitação direta' : merged.isUrgent ? '⚡ Novo chamado urgente' : '🔔 Novo chamado disponível';
       const bodyText = merged.isUrgent ? `${merged.title} • atendimento imediato` : `${merged.title} • nova oportunidade na sua região`;
-      await sendPushToRoles(['provider'], { title, body: bodyText, data: { type: 'demand.created', demandId: merged.id } });
+      await sendPushToUsers(providerIds, { title, body: bodyText, data: { type: 'demand.created', demandId: merged.id } });
     } else if (existing && existing.status !== merged.status) {
+      void broadcastRealtime({ type: 'demand.updated', demandId: merged.id, actorUserId: merged.requesterId, at: eventAt });
       const stage = stageText(merged.status);
       if (stage) {
         const recipientId = merged.status === 'completed' ? merged.acceptedProviderId : merged.requesterId;
@@ -82,9 +123,10 @@ export async function registerDemandRoutes(app: FastifyInstance) {
     return reply.code(created ? 201 : 200).send(merged);
   });
 
-  app.post<{ Params: { id: string }; Body: { userId?: string; action?: 'en_route' | 'arrived' | 'start' | 'request_completion' | 'confirm_completion' } }>('/api/v1/demands/:id/service-actions', async (request, reply) => {
-    const { userId, action } = request.body ?? {};
-    if (!userId || !action) return reply.code(400).send({ error: 'INVALID_SERVICE_ACTION', message: 'Informe participante e ação.' });
+  app.post<{ Params: { id: string }; Body: { action?: 'en_route' | 'arrived' | 'start' | 'request_completion' | 'confirm_completion' } }>('/api/v1/demands/:id/service-actions', { preHandler: requireAuth }, async (request, reply) => {
+    const { action } = request.body ?? {};
+    const userId = request.authUser!.id;
+    if (!action) return reply.code(400).send({ error: 'INVALID_SERVICE_ACTION', message: 'Informe uma ação.' });
     const db = await getDatabase();
     const demand = db ? await db.collection<Demand>(collectionName).findOne({ id: request.params.id }) : memoryStore.demands.find((item) => item.id === request.params.id);
     if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });
@@ -124,9 +166,8 @@ export async function registerDemandRoutes(app: FastifyInstance) {
     return reply.send(next);
   });
 
-  app.post<{ Params: { id: string }; Body: { userId?: string } }>('/api/v1/demands/:id/cancel', async (request, reply) => {
-    const userId = request.body?.userId;
-    if (!userId) return reply.code(400).send({ error: 'USER_REQUIRED', message: 'Informe o cliente que está cancelando.' });
+  app.post<{ Params: { id: string } }>('/api/v1/demands/:id/cancel', { preHandler: requireRole('customer') }, async (request, reply) => {
+    const userId = request.authUser!.id;
     const db = await getDatabase();
     const demand = db ? await db.collection<Demand>(collectionName).findOne({ id: request.params.id }) : memoryStore.demands.find((item) => item.id === request.params.id);
     if (!demand) return reply.code(404).send({ error: 'DEMAND_NOT_FOUND', message: 'Demanda não encontrada.' });

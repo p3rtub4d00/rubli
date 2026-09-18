@@ -74,7 +74,7 @@ export function ServiceLifecycleScreen({ user, profiles, visible, onClose, onCha
             : demand.status === 'awaiting_customer_confirmation' ? 'confirm_completion' : null;
     if (!action) return;
     if ((action === 'confirm_completion' && !isCustomer) || (action !== 'confirm_completion' && !isProvider)) return Alert.alert('Ação não permitida', action === 'confirm_completion' ? 'Somente o cliente que abriu o chamado pode confirmar a conclusão.' : 'Somente o prestador contratado pode atualizar esta etapa.');
-    const updated = await apiServiceAction(demand.id, { userId: user.id, action });
+    const updated = await apiServiceAction(demand.id, { action });
     const next = demands.map((item) => item.id === updated.id ? updated : item);
     await saveDemands(next); setDemands(next); onChanged();
   }

@@ -5,4 +5,5 @@ export const DEMAND_CATEGORIES = {
     freight: ['Mudança', 'Móveis', 'Materiais', 'Carga leve', 'Carga pesada', 'Outros'],
 };
 export { distanceKm, isValidCoordinates } from './geo.js';
+export { normalizeCategoryKey } from './categories.js';
 export { canProviderSubmitProposal, isProviderSubscriptionActive } from './subscription.js';

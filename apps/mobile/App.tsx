@@ -3,11 +3,11 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, ImageBackground, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import type { ChatMessage, Conversation, Demand, DemandType, Proposal, ProviderPlan, User, UserRole } from '@rubli/shared';
-import { DEMAND_CATEGORIES, distanceKm, isValidCoordinates } from '@rubli/shared';
-import { connectRealtime, disconnectRealtime, subscribeRealtime } from './src/api/realtime';
-import { apiAcceptProposal, apiCancelDemand, apiConfirmProposal, apiCreateDemand, apiListCategories, apiListPremiumProviders, apiLogin, apiRegister, apiSessionActive, apiSimulateProviderSubscription, type PublicProvider, type RemoteDemandCategory } from './src/api/client';
-import { clearLocalData, getConversations, getDemands, getMessages, getProposals, getUser, getUsers, saveConversations, saveDemands, saveMessages, saveProposals, saveUser } from './src/storage/localStore';
+import type { ChatMessage, Conversation, Demand, DemandType, Proposal, ProviderPlan, ProviderType, Rating, ServiceAddress, User, UserRole } from '@rubli/shared';
+import { DEMAND_CATEGORIES, isValidCoordinates } from '@rubli/shared';
+import { connectRealtime, disconnectRealtime, subscribeRealtime } from './src/core/realtime/client';
+import { apiAcceptProposal, apiCancelDemand, apiConfirmProposal, apiCreateDemand, apiCurrentUser, apiGetUserProfile, apiListCategories, apiListPremiumProviders, apiListProviderOpportunities, apiLogin, apiLogout, apiRegister, apiSimulateProviderSubscription, apiUpdateUserProfile, hasAuthenticatedSession, onAuthenticationLost, type PremiumProviderSearchItem, type PublicProfessionalProfile, type PublicProvider, type RemoteDemandCategory } from './src/core/api/client';
+import { clearLocalData, getConversations, getDemands, getMessages, getProposals, getUser, getUsers, saveConversations, saveDemands, saveMessages, saveProposals, saveUser } from './src/core/storage/localStore';
 import { NegotiationChatScreen } from './src/screens/NegotiationChatScreen';
 import { NotificationCenterScreen } from './src/screens/NotificationCenterScreen';
 import { CompletionRatingModal } from './src/screens/CompletionRatingModal';
@@ -17,11 +17,17 @@ import { SupportScreen } from './src/screens/SupportScreen';
 import { LegalDocumentModal } from './src/screens/LegalDocumentModal';
 import { OpportunityScreen } from './src/screens/OpportunityScreen';
 import { MyProfileScreen } from './src/screens/MyProfileScreen';
+import { PublicProfileScreen } from './src/screens/PublicProfileScreen';
 import { getHistoryDemands, getRatings } from './src/profile/profileStore';
+import { CustomerApp } from './src/features/customer/CustomerApp';
+import { ProviderApp } from './src/features/provider/ProviderApp';
+import { useProviderFeed } from './src/features/provider/hooks/useProviderFeed';
+import { FormField } from './src/shared/components/FormField';
 
 const BRAND = '#0B3B82';
 const ACCENT = '#0B66FF';
 const BG = '#F6F9FE';
+const AUTH_FIELD_LABEL = { color: '#DDE7F5' } as const;
 const WELCOME_BACKGROUND = require('./assets/rubli-welcome.png');
 const SERVICE_COMPLETE_BACKGROUND = require('./assets/rubli-service-complete.png');
 const DEFAULT_RADIUS = 10;
@@ -42,16 +48,19 @@ function formatDistance(km: number) { return km < 1 ? `${Math.round(km * 1000)} 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [demands, setDemands] = useState<Demand[]>([]);
+  const [targetProviderId, setTargetProviderId] = useState<string | undefined>();
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [screen, setScreen] = useState<Screen>('home');
-  const [entryStep, setEntryStep] = useState<'welcome' | 'role' | 'auth'>('welcome');
+  const [entryStep, setEntryStep] = useState<'welcome' | 'role' | 'providerType' | 'auth'>('welcome');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const [legalDocument, setLegalDocument] = useState<'terms' | 'privacy' | null>(null);
   const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [providerProfileOpen, setProviderProfileOpen] = useState<PublicProfessionalProfile | null>(null);
+  const [providerProfileRatings, setProviderProfileRatings] = useState<Rating[]>([]);
   const [knownUsers, setKnownUsers] = useState<User[]>([]);
   const [pendingRatingDemand, setPendingRatingDemand] = useState<Demand | null>(null);
   const [completionCelebrationVisible, setCompletionCelebrationVisible] = useState(false);
@@ -61,6 +70,10 @@ export default function App() {
   const [newDemandPopup, setNewDemandPopup] = useState<{ demand: Demand; distanceKm?: number } | null>(null);
   const [name, setName] = useState(''); const [email, setEmail] = useState(''); const [phone, setPhone] = useState(''); const [taxDocument, setTaxDocument] = useState(''); const [taxDocumentType, setTaxDocumentType] = useState<'cpf' | 'cnpj'>('cpf'); const [businessName, setBusinessName] = useState(''); const [issuesInvoice, setIssuesInvoice] = useState(false); const [professionalTitle, setProfessionalTitle] = useState(''); const [password, setPassword] = useState(''); const [passwordConfirmation, setPasswordConfirmation] = useState(''); const [termsAccepted, setTermsAccepted] = useState(false); const [authMode, setAuthMode] = useState<'register' | 'login'>('register'); const [selectedPlan, setSelectedPlan] = useState<ProviderPlan>('standard'); const [authBusy, setAuthBusy] = useState(false); const [role, setRole] = useState<UserRole>('customer'); const [type, setType] = useState<DemandType>('service'); const [title, setTitle] = useState(''); const [description, setDescription] = useState(''); const [category, setCategory] = useState(''); const [budget, setBudget] = useState(''); const [locationLabel, setLocationLabel] = useState(''); const [latitude, setLatitude] = useState<number | undefined>(); const [longitude, setLongitude] = useState<number | undefined>(); const [isUrgent, setIsUrgent] = useState(false);
   const [demandPhotoUris, setDemandPhotoUris] = useState<string[]>([]);
+  const [providerType, setProviderType] = useState<ProviderType | null>(null);
+  const [serviceAddress, setServiceAddress] = useState<Partial<ServiceAddress>>({});
+  const [pickupAddress, setPickupAddress] = useState<Partial<ServiceAddress>>({});
+  const [dropoffAddress, setDropoffAddress] = useState<Partial<ServiceAddress>>({});
   const [remoteCategories, setRemoteCategories] = useState<RemoteDemandCategory[]>([]);
   const [providerRadius, setProviderRadius] = useState(DEFAULT_RADIUS); const [providerLatitude, setProviderLatitude] = useState<number | undefined>(); const [providerLongitude, setProviderLongitude] = useState<number | undefined>(); const [profileName, setProfileName] = useState('');
 
@@ -72,16 +85,24 @@ export default function App() {
   }
 
   useEffect(() => { (async () => {
-    const storedUser = await getUser();
+    let storedUser = await getUser();
     if (storedUser) {
-      try {
-        if (!(await apiSessionActive(storedUser.id)).active) { await clearLocalData(); return; }
-      } catch { /* Sem conexão: mantém o cache somente como fallback offline. */ }
+      if (!await hasAuthenticatedSession()) { await clearLocalData(); storedUser = null; }
+      else try { storedUser = (await apiCurrentUser()).user; await saveUser(storedUser); }
+      catch (error) {
+        if (error instanceof Error && error.message.includes('UNAUTHORIZED')) { await clearLocalData(); storedUser = null; }
+        // Sem conexão, mantém o cache somente como fallback offline.
+      }
     }
     const [storedDemands, storedProposals, storedConversations, storedMessages, storedUsers] = await Promise.all([getDemands(), getProposals(), getConversations(), getMessages(), getUsers()]);
     setUser(storedUser); setDemands(storedDemands); setProposals(storedProposals); setConversations(storedConversations); setMessages(storedMessages); setKnownUsers(storedUsers);
-    if (storedUser) { saveUser(storedUser).catch(() => undefined); setProviderRadius(storedUser.serviceRadiusKm ?? DEFAULT_RADIUS); setProfileName(storedUser.name); }
+    if (storedUser) { saveUser(storedUser).catch(() => undefined); setProviderRadius(storedUser.serviceRadiusKm ?? DEFAULT_RADIUS); setProviderLatitude(storedUser.serviceLatitude); setProviderLongitude(storedUser.serviceLongitude); setProfileName(storedUser.name); }
   })().catch(() => undefined); }, []);
+
+  useEffect(() => onAuthenticationLost(() => {
+    void clearLocalData().catch(() => undefined);
+    setUser(null); setDemands([]); setProposals([]); setConversations([]); setMessages([]); setKnownUsers([]); setScreen('home'); setEntryStep('welcome');
+  }), []);
 
   async function refreshCategories() {
     try { setRemoteCategories(await apiListCategories()); } catch { /* Mantém as categorias originais quando o servidor estiver indisponível. */ }
@@ -104,21 +125,31 @@ export default function App() {
         }
         return;
       }
-      Promise.all([getDemands(), getProposals(), getConversations(), getMessages()]).then(([nextDemands, nextProposals, nextConversations, nextMessages]) => {
-        setDemands(nextDemands); setProposals(nextProposals); setConversations(nextConversations); setMessages(nextMessages);
-        if (user.role === 'provider' && event.type === 'demand.created' && event.actorUserId !== user.id) {
-          const newDemand = nextDemands.find((item) => item.id === event.demandId);
-          if (newDemand && isValidCoordinates(providerLatitude, providerLongitude)) {
-            const distance = isValidCoordinates(newDemand.latitude, newDemand.longitude)
-              ? distanceKm({ latitude: providerLatitude!, longitude: providerLongitude! }, { latitude: newDemand.latitude!, longitude: newDemand.longitude! })
-              : undefined;
-            if (distance === undefined || distance <= providerRadius) setNewDemandPopup({ demand: newDemand, distanceKm: distance });
-          }
+      if (event.type === 'category.updated') {
+        refreshCategories().catch(() => undefined);
+        return;
+      }
+      const refreshDemandData = async () => {
+        const [nextDemands, nextProposals] = await Promise.all([getDemands(), getProposals()]);
+        setDemands(nextDemands); setProposals(nextProposals);
+        if (user.role === 'provider' && user.isAvailable !== false && event.type === 'demand.created' && event.actorUserId !== user.id) {
+          // O popup é apenas uma apresentação do feed autenticado. Não fazemos
+          // uma segunda regra local de categoria/raio, que poderia divergir do
+          // matching central usado para distribuir o evento e o push.
+          const opportunities = await apiListProviderOpportunities().catch(() => null);
+          const newDemand = opportunities?.items.find((item) => item.id === event.demandId);
+          if (newDemand) setNewDemandPopup({ demand: newDemand, distanceKm: newDemand.distanceKm });
         }
-      }).then(() => findPendingRating()).catch(() => undefined);
+        await findPendingRating();
+      };
+      if (event.type === 'message.created') {
+        Promise.all([getConversations(), getMessages()]).then(([nextConversations, nextMessages]) => { setConversations(nextConversations); setMessages(nextMessages); }).catch(() => undefined);
+      } else if (event.demandId || event.proposalId || event.type === 'rating.created' || event.type === 'rating.requested') {
+        refreshDemandData().catch(() => undefined);
+      }
     });
     return unsubscribe;
-  }, [user?.id]);
+  }, [user, providerLatitude, providerLongitude, providerRadius]);
 
   useEffect(() => { findPendingRating().catch(() => undefined); }, [user?.id]);
   useEffect(() => {
@@ -131,17 +162,18 @@ export default function App() {
     const fromServer = remoteCategories.filter((item) => item.active && item.type === type).map((item) => item.name);
     return fromServer.length ? fromServer : DEMAND_CATEGORIES[type] as readonly string[];
   }, [remoteCategories, type]);
-  const providerFeed = useMemo(() => { if (!user || user.role !== 'provider' || !isValidCoordinates(providerLatitude, providerLongitude)) return [] as Array<{ demand: Demand; distanceKm?: number }>; return demands.filter((demand) => demand.requesterId !== user.id).filter((demand) => ['open', 'negotiating'].includes(demand.status)).map((demand) => ({ demand, distanceKm: isValidCoordinates(demand.latitude, demand.longitude) ? distanceKm({ latitude: providerLatitude!, longitude: providerLongitude! }, { latitude: demand.latitude!, longitude: demand.longitude! }) : undefined })).filter((item) => item.distanceKm === undefined || item.distanceKm <= providerRadius).sort((a, b) => Boolean(b.demand.isUrgent) === Boolean(a.demand.isUrgent) ? (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER) : Number(Boolean(b.demand.isUrgent)) - Number(Boolean(a.demand.isUrgent))); }, [demands, providerLatitude, providerLongitude, providerRadius, user]);
+  const providerFeed = useProviderFeed(user, demands, providerLatitude, providerLongitude, providerRadius);
 
-  async function enterWithUser(nextUser: User) { await saveUser(nextUser); setUser(nextUser); setProviderRadius(nextUser.serviceRadiusKm ?? DEFAULT_RADIUS); setProfileName(nextUser.name); setPassword(''); setPasswordConfirmation(''); }
+  async function enterWithUser(nextUser: User) { await saveUser(nextUser); setUser(nextUser); setProviderRadius(nextUser.serviceRadiusKm ?? DEFAULT_RADIUS); setProviderLatitude(nextUser.serviceLatitude); setProviderLongitude(nextUser.serviceLongitude); setProfileName(nextUser.name); setPassword(''); setPasswordConfirmation(''); }
   async function createAccount(simulatePayment = false) {
     if (!name.trim() || !email.trim() || !phone.trim() || !taxDocument.trim() || !password) return Alert.alert('Complete o cadastro', 'Informe nome, telefone, CPF/CNPJ, e-mail e senha.');
+    if (role === 'provider' && !providerType) return Alert.alert('Modalidade profissional', 'Selecione como você quer trabalhar no Rubli.');
     if (!termsAccepted) return Alert.alert('Aceite necessário', 'Para criar sua conta, leia e aceite os Termos de Uso e a Política de Privacidade.');
     if (password.length < 8) return Alert.alert('Senha fraca', 'Use ao menos 8 caracteres.');
     if (password !== passwordConfirmation) return Alert.alert('Senhas diferentes', 'Confirme a mesma senha nos dois campos.');
     setAuthBusy(true);
     try {
-      const registered = await apiRegister({ name: name.trim(), email: email.trim(), phone, password, role: role as 'customer' | 'provider', providerPlan: role === 'provider' ? selectedPlan : undefined, taxDocument, taxDocumentType: role === 'provider' ? taxDocumentType : 'cpf', businessName: role === 'provider' && taxDocumentType === 'cnpj' ? businessName : undefined, issuesInvoice: role === 'provider' ? issuesInvoice : undefined, professionalTitle: role === 'provider' ? professionalTitle : undefined });
+      const registered = await apiRegister({ name: name.trim(), email: email.trim(), phone, password, role: role as 'customer' | 'provider', providerType: role === 'provider' ? providerType ?? undefined : undefined, providerPlan: role === 'provider' ? selectedPlan : undefined, taxDocument, taxDocumentType: role === 'provider' ? taxDocumentType : 'cpf', businessName: role === 'provider' && taxDocumentType === 'cnpj' ? businessName : undefined, issuesInvoice: role === 'provider' ? issuesInvoice : undefined, professionalTitle: role === 'provider' ? professionalTitle : undefined });
       const nextUser = simulatePayment && role === 'provider' ? (await apiSimulateProviderSubscription(registered.user.id, selectedPlan)).user : registered.user;
       await enterWithUser(nextUser);
       Alert.alert(simulatePayment ? 'Pagamento simulado' : 'Conta criada', simulatePayment ? `Plano ${selectedPlan === 'premium_verified' ? 'Premium Verificado' : 'Comum'} ativado apenas para teste. Nenhuma cobrança foi realizada.` : role === 'provider' ? 'Você ganhou 7 dias grátis para conhecer o Rubli.' : 'Sua conta foi criada com segurança.');
@@ -152,13 +184,41 @@ export default function App() {
     setAuthBusy(true);
     try { await enterWithUser((await apiLogin({ email: email.trim(), password })).user); } catch (error) { Alert.alert('Não foi possível entrar', error instanceof Error ? error.message : 'Tente novamente.'); } finally { setAuthBusy(false); }
   }
-  async function captureLocationForDemand() { try { const permission = await Location.requestForegroundPermissionsAsync(); if (permission.status !== 'granted') return Alert.alert('Localização', 'Permissão não concedida. Informe o bairro/endereço manualmente.'); const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }); setLatitude(current.coords.latitude); setLongitude(current.coords.longitude); if (!locationLabel.trim()) setLocationLabel('Localização atual'); } catch { Alert.alert('Localização', 'Não foi possível obter sua localização.'); } }
+  async function captureLocationForDemand(kind: 'service' | 'pickup' | 'dropoff' = 'service') { try { const permission = await Location.requestForegroundPermissionsAsync(); if (permission.status !== 'granted') return Alert.alert('Localização', 'Permissão não concedida. Você pode preencher o endereço manualmente.'); const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }); const [place] = await Location.reverseGeocodeAsync(current.coords).catch(() => []); const currentAddress = kind === 'service' ? serviceAddress : kind === 'pickup' ? pickupAddress : dropoffAddress; const next = { ...currentAddress, latitude: current.coords.latitude, longitude: current.coords.longitude, street: place?.street ?? currentAddress.street, number: place?.streetNumber ?? currentAddress.number, neighborhood: place?.district ?? currentAddress.neighborhood, city: place?.city ?? currentAddress.city, state: place?.region ?? currentAddress.state, postalCode: place?.postalCode ?? currentAddress.postalCode }; if (kind === 'service') setServiceAddress(next); else if (kind === 'pickup') setPickupAddress(next); else setDropoffAddress(next); if (kind !== 'dropoff') { setLatitude(current.coords.latitude); setLongitude(current.coords.longitude); } if (!locationLabel.trim() && next.neighborhood && next.city && next.state) setLocationLabel(`${next.neighborhood} · ${next.city} - ${next.state}`); } catch { Alert.alert('Localização', 'Não foi possível obter sua localização.'); } }
   async function pickDemandPhotos() { try { const permission = await ImagePicker.requestMediaLibraryPermissionsAsync(); if (!permission.granted) return Alert.alert('Fotos', 'Permita o acesso à galeria para adicionar fotos do serviço.'); const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 5, quality: 0.2, base64: true }); if (result.canceled) return; const allUris = result.assets.map((asset) => asset.base64 ? `data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}` : asset.uri).filter(Boolean); const nextUris = allUris.filter((uri) => uri.length <= 1_500_000); if (nextUris.length !== allUris.length) Alert.alert('Foto muito grande', 'Algumas fotos foram removidas para que a demanda seja enviada. Escolha imagens menores ou recorte a foto antes de adicionar.'); setDemandPhotoUris((current) => [...current, ...nextUris].slice(0, 5)); } catch { Alert.alert('Fotos', 'Não foi possível abrir a galeria.'); } }
   function removeDemandPhoto(uri: string) { setDemandPhotoUris((current) => current.filter((item) => item !== uri)); }
-  async function captureProviderLocation() { try { const permission = await Location.requestForegroundPermissionsAsync(); if (permission.status !== 'granted') return Alert.alert('Localização', 'Permissão não concedida.'); const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }); setProviderLatitude(current.coords.latitude); setProviderLongitude(current.coords.longitude); } catch { Alert.alert('Localização', 'Não foi possível obter sua localização.'); } }
-  async function createDemand() { if (!user) return; const parsedBudget = budget.trim() ? Number(budget.replace(',', '.')) : undefined; if (!title.trim() || !description.trim() || !category || !locationLabel.trim()) return Alert.alert('Complete os dados', 'Preencha título, descrição, categoria e localização.'); if (parsedBudget !== undefined && (!Number.isFinite(parsedBudget) || parsedBudget <= 0)) return Alert.alert('Valor inválido', 'Informe um valor maior que zero ou deixe o campo vazio.'); if (demandPhotoUris.some((uri) => uri.length > 1_500_000) || demandPhotoUris.reduce((total, uri) => total + uri.length, 0) > 6_000_000) { setDemandPhotoUris((current) => current.filter((uri) => uri.length <= 1_500_000).slice(0, 4)); return Alert.alert('Revise as fotos', 'Uma ou mais fotos são grandes demais. Removemos as maiores; publique novamente ou escolha fotos menores.'); } const now = new Date().toISOString(); const draft: Demand = { id: newId('dem'), requesterId: user.id, type, title: title.trim(), description: description.trim(), category, budgetType: parsedBudget ? 'fixed' : 'open', budget: parsedBudget, locationLabel: locationLabel.trim(), latitude, longitude, isUrgent, photoUris: demandPhotoUris, status: 'open', createdAt: now, updatedAt: now }; try { const next = await apiCreateDemand(draft); const nextDemands = [next, ...demands]; setDemands(nextDemands); await saveDemands(nextDemands); setTitle(''); setDescription(''); setBudget(''); setLocationLabel(''); setCategory(''); setLatitude(undefined); setLongitude(undefined); setIsUrgent(false); setDemandPhotoUris([]); setScreen('home'); Alert.alert('Demanda publicada', isUrgent ? 'Sua demanda foi publicada como PRECISO AGORA.' : 'Sua demanda foi publicada.'); } catch (error) { const detail = error instanceof Error ? error.message : 'Não foi possível conectar ao servidor.'; Alert.alert('Não foi possível publicar', `${detail}\n\nVerifique se a API do Rubli está em execução nesta rede.`); } }
+  async function captureProviderLocation() {
+    try {
+      if (!user || user.role !== 'provider') return;
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') return Alert.alert('Localização', 'Permissão não concedida.');
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const nextUser = await apiUpdateUserProfile(user.id, {
+        serviceLatitude: current.coords.latitude,
+        serviceLongitude: current.coords.longitude,
+      });
+      setProviderLatitude(nextUser.serviceLatitude);
+      setProviderLongitude(nextUser.serviceLongitude);
+      await saveUser(nextUser);
+      setUser(nextUser);
+    } catch { Alert.alert('Localização', 'Não foi possível salvar sua localização para encontrar chamados próximos.'); }
+  }
+  async function createDemand() { if (!user) return; const parsedBudget = budget.trim() ? Number(budget.replace(',', '.')) : undefined; const routeDemand = type === 'delivery' || type === 'freight'; const hasAddress = (address: Partial<ServiceAddress>) => Boolean(address.postalCode?.trim() && address.street?.trim() && address.number?.trim() && address.neighborhood?.trim() && address.city?.trim() && address.state?.trim() && Number.isFinite(address.latitude) && Number.isFinite(address.longitude)); const completeAddress = type === 'service' ? hasAddress(serviceAddress) : routeDemand ? hasAddress(pickupAddress) && hasAddress(dropoffAddress) : true; if (!title.trim() || !description.trim() || !category || !completeAddress) return Alert.alert('Informe os endereços', routeDemand ? 'Preencha coleta e destino completos e confirme a localização de cada ponto.' : 'Para serviços presenciais, preencha CEP, rua, número, bairro, cidade, UF e confirme a localização.'); if (parsedBudget !== undefined && (!Number.isFinite(parsedBudget) || parsedBudget <= 0)) return Alert.alert('Valor inválido', 'Informe um valor maior que zero ou deixe o campo vazio.'); const address = type === 'service' ? serviceAddress as ServiceAddress : undefined; const pickup = routeDemand ? pickupAddress as ServiceAddress : undefined; const dropoff = routeDemand ? dropoffAddress as ServiceAddress : undefined; const now = new Date().toISOString(); const draft: Demand = { id: newId('dem'), requesterId: user.id, type, title: title.trim(), description: description.trim(), category, budgetType: parsedBudget ? 'fixed' : 'open', budget: parsedBudget, locationLabel: address ? `${address.neighborhood} · ${address.city} - ${address.state}` : pickup ? `${pickup.neighborhood} → ${dropoff!.neighborhood}` : locationLabel.trim(), latitude: address?.latitude ?? pickup?.latitude ?? latitude, longitude: address?.longitude ?? pickup?.longitude ?? longitude, serviceAddress: address, pickupAddress: pickup, dropoffAddress: dropoff, isUrgent, photoUris: demandPhotoUris, status: 'open', createdAt: now, updatedAt: now, targetProviderId }; try { const next = await apiCreateDemand(draft); const nextDemands = [next, ...demands]; setDemands(nextDemands); await saveDemands(nextDemands); setTitle(''); setDescription(''); setBudget(''); setLocationLabel(''); setServiceAddress({}); setPickupAddress({}); setDropoffAddress({}); setCategory(''); setLatitude(undefined); setLongitude(undefined); setIsUrgent(false); setDemandPhotoUris([]); setTargetProviderId(undefined); setScreen('home'); Alert.alert('Demanda publicada', targetProviderId ? 'Sua solicitação foi enviada diretamente ao profissional escolhido.' : isUrgent ? 'Sua demanda foi publicada como PRECISO AGORA.' : 'Sua demanda foi publicada.'); } catch (error) { Alert.alert('Não foi possível publicar', error instanceof Error ? error.message : 'Tente novamente.'); } }
   async function ensureConversation(demandId: string, providerId: string) { const demand = demands.find((item) => item.id === demandId); if (!demand) return null; const existing = conversations.find((item) => item.demandId === demandId && item.customerId === demand.requesterId && item.providerId === providerId); if (existing) return existing; const now = new Date().toISOString(); const conversation: Conversation = { id: newId('conv'), demandId, customerId: demand.requesterId, providerId, createdAt: now, updatedAt: now }; const next = [conversation, ...conversations]; setConversations(next); await saveConversations(next); return conversation; }
   async function openProposalChat(proposal: Proposal) { const conversation = await ensureConversation(proposal.demandId, proposal.providerId); if (!conversation) return; setActiveConversation(conversation); setScreen('negotiation'); }
+  async function openProposalProviderProfile(proposal: Proposal) {
+    try {
+      const [provider, ratings] = await Promise.all([apiGetUserProfile(proposal.providerId), getRatings()]);
+      setProviderProfileRatings(ratings);
+      setProviderProfileOpen(provider);
+    } catch (error) {
+      Alert.alert('Perfil indisponível', error instanceof Error ? error.message : 'Não foi possível carregar o perfil deste prestador agora.');
+    }
+  }
+  async function openSearchProviderProfile(providerId: string) {
+    try { const [provider, ratings] = await Promise.all([apiGetUserProfile(providerId), getRatings()]); setProviderProfileRatings(ratings); setProviderProfileOpen(provider); }
+    catch (error) { Alert.alert('Perfil indisponível', error instanceof Error ? error.message : 'Não foi possível carregar o perfil deste prestador agora.'); }
+  }
   function openOpportunity(demand: Demand, distanceKm?: number) { setSelectedOpportunity({ demand, distanceKm }); setScreen('opportunity'); }
   async function openOpportunityNegotiation() { if (!user || !selectedOpportunity) return; const conversation = await ensureConversation(selectedOpportunity.demand.id, user.id); if (!conversation) return; setActiveConversation(conversation); setScreen('negotiation'); }
   async function acceptProposal(proposal: Proposal) {
@@ -172,8 +232,8 @@ export default function App() {
       // cliente cabe a confirmação final, e não aceitar a própria oferta.
       const legacyBudgetAcceptance = proposal.offeredBy === 'customer' && Boolean(proposal.providerConfirmedAt) && !proposal.customerConfirmedAt;
       const result = legacyBudgetAcceptance
-        ? await apiConfirmProposal(proposal.id, user.id)
-        : await apiAcceptProposal(proposal.id, user.id);
+        ? await apiConfirmProposal(proposal.id)
+        : await apiAcceptProposal(proposal.id);
       setProposals((current) => current.map((item) => item.id === result.proposal.id ? result.proposal : item));
       setDemands((current) => current.map((item) => item.id === result.demand.id ? result.demand : item));
 
@@ -189,7 +249,7 @@ export default function App() {
   }
   async function cancelDemand(demand: Demand) {
     if (!user || demand.requesterId !== user.id) return;
-    const cancelled = await apiCancelDemand(demand.id, user.id);
+    const cancelled = await apiCancelDemand(demand.id);
     const nextDemands = demands.map((item) => item.id === cancelled.id ? cancelled : item);
     await saveDemands(nextDemands);
     setDemands(nextDemands.filter((item) => item.status !== 'cancelled'));
@@ -198,22 +258,23 @@ export default function App() {
   async function sendMessage(text: string) { if (!user || !activeConversation || !text.trim()) return; const message: ChatMessage = { id: newId('msg'), conversationId: activeConversation.id, senderId: user.id, text: text.trim(), createdAt: new Date().toISOString() }; const nextMessages = [...messages, message]; const nextConversations = conversations.map((item) => item.id === activeConversation.id ? { ...item, updatedAt: message.createdAt, lastMessageAt: message.createdAt } : item); setMessages(nextMessages); setConversations(nextConversations); await saveMessages(nextMessages); await saveConversations(nextConversations); }
   async function updateProviderSettings(radius: number) { if (!user) return; const nextUser = { ...user, serviceRadiusKm: radius }; await saveUser(nextUser); setUser(nextUser); setProviderRadius(radius); }
   async function updateProfileName() { if (!user || !profileName.trim()) return; const nextUser = { ...user, name: profileName.trim() }; await saveUser(nextUser); setUser(nextUser); }
-  async function signOut() { disconnectRealtime(); await saveUser(null); setUser(null); setName(''); setEmail(''); setPassword(''); setPasswordConfirmation(''); setRole('customer'); setProfileName(''); setAuthMode('login'); setEntryStep('welcome'); setScreen('home'); }
+  async function signOut() { disconnectRealtime(); await apiLogout().catch(() => undefined); await saveUser(null); setUser(null); setName(''); setEmail(''); setPassword(''); setPasswordConfirmation(''); setRole('customer'); setProfileName(''); setAuthMode('login'); setEntryStep('welcome'); setScreen('home'); }
   function showServiceCompletion() { setPendingRatingDemand(null); setHistoryOpen(false); setActiveConversation(null); setSelectedOpportunity(null); setScreen('home'); setCompletionCelebrationVisible(true); }
   async function simulatePlan(plan: ProviderPlan) { if (!user || user.role !== 'provider') return; try { const result = await apiSimulateProviderSubscription(user.id, plan); await enterWithUser(result.user); Alert.alert('Pagamento simulado', `Plano ${plan === 'premium_verified' ? 'Premium Verificado' : 'Comum'} ativado para teste. Nenhuma cobrança foi realizada.`); } catch (error) { Alert.alert('Simulação indisponível', error instanceof Error ? error.message : 'Tente novamente.'); } }
 
   if (!user && entryStep === 'welcome') return <WelcomeScreen onStart={() => setEntryStep('role')} onLogin={() => { setAuthMode('login'); setEntryStep('auth'); }} />;
-  if (!user && entryStep === 'role') return <RoleEntryScreen onBack={() => setEntryStep('welcome')} onSelect={(nextRole) => { setRole(nextRole); setAuthMode('register'); setEntryStep('auth'); }} onLogin={() => { setAuthMode('login'); setEntryStep('auth'); }} />;
+  if (!user && entryStep === 'role') return <RoleEntryScreen onBack={() => setEntryStep('welcome')} onSelectCustomer={() => { setRole('customer'); setProviderType(null); setAuthMode('register'); setEntryStep('auth'); }} onSelectProvider={() => { setRole('provider'); setAuthMode('register'); setEntryStep('providerType'); }} onLogin={() => { setAuthMode('login'); setEntryStep('auth'); }} />;
+  if (!user && entryStep === 'providerType') return <ProviderTypeEntryScreen onBack={() => setEntryStep('role')} onSelect={(nextType) => { setProviderType(nextType); setEntryStep('auth'); }} />;
   if (!user) return <SafeAreaView style={styles.safe}><StatusBar style="light" /><ScrollView contentContainerStyle={styles.onboarding}>
     <Text style={styles.logo}>Rubli</Text><Text style={styles.tagline}>Quem precisa, encontra quem resolve.</Text>
     <Text style={styles.heading}>{authMode === 'register' ? 'Crie sua conta' : 'Entre na sua conta'}</Text><Text style={styles.mutedLight}>Seu cadastro fica protegido por senha no servidor.</Text>
-    {authMode === 'register' && <TextInput value={name} onChangeText={setName} placeholder="Seu nome" placeholderTextColor="#718096" style={styles.inputDark} />}
-    <TextInput value={email} onChangeText={setEmail} placeholder="Seu e-mail" autoCapitalize="none" keyboardType="email-address" placeholderTextColor="#718096" style={styles.inputDark} />
-    {authMode === 'register' && <><TextInput value={phone} onChangeText={setPhone} placeholder="Telefone com DDD" keyboardType="phone-pad" placeholderTextColor="#718096" style={styles.inputDark} /><TextInput value={taxDocument} onChangeText={setTaxDocument} placeholder={role === 'provider' && taxDocumentType === 'cnpj' ? 'CNPJ' : 'CPF'} keyboardType="numeric" placeholderTextColor="#718096" style={styles.inputDark} /></>}
-    <TextInput value={password} onChangeText={setPassword} placeholder="Senha (mínimo 8 caracteres)" secureTextEntry placeholderTextColor="#718096" style={styles.inputDark} />
-    {authMode === 'register' && <><TextInput value={passwordConfirmation} onChangeText={setPasswordConfirmation} placeholder="Confirme sua senha" secureTextEntry placeholderTextColor="#718096" style={styles.inputDark} />
+    {authMode === 'register' && <FormField label="Nome completo" value={name} onChangeText={setName} placeholder="Ex.: João da Silva" autoCapitalize="words" style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} />}
+    <FormField label="E-mail" value={email} onChangeText={setEmail} placeholder="voce@email.com" autoCapitalize="none" keyboardType="email-address" style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} />
+    {authMode === 'register' && <><FormField label="Celular" value={phone} onChangeText={setPhone} placeholder="(69) 99999-9999" keyboardType="phone-pad" style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} /><FormField label={role === 'provider' && taxDocumentType === 'cnpj' ? 'CNPJ' : 'CPF'} value={taxDocument} onChangeText={setTaxDocument} placeholder={role === 'provider' && taxDocumentType === 'cnpj' ? '00.000.000/0001-00' : '000.000.000-00'} keyboardType="numeric" style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} /></>}
+    <FormField label="Senha" value={password} onChangeText={setPassword} placeholder="Digite sua senha" secureTextEntry style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} />
+    {authMode === 'register' && <><FormField label="Confirmar senha" value={passwordConfirmation} onChangeText={setPasswordConfirmation} placeholder="Digite novamente" secureTextEntry style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} />
       <TouchableOpacity onPress={() => setEntryStep('role')}><Text style={{ color: '#BFD9FF', fontWeight: '800', marginTop: -2, marginBottom: 12 }}>Cadastro como {role === 'provider' ? 'prestador de serviços' : 'cliente'} · Alterar</Text></TouchableOpacity>
-      {role === 'provider' && <><TextInput value={professionalTitle} onChangeText={setProfessionalTitle} placeholder="Profissão ou especialidade" placeholderTextColor="#718096" style={styles.inputDark} /><View style={styles.rowWrap}><RoleButton label="Autônomo (CPF)" active={taxDocumentType === 'cpf'} onPress={() => setTaxDocumentType('cpf')} /><RoleButton label="Empresa (CNPJ)" active={taxDocumentType === 'cnpj'} onPress={() => setTaxDocumentType('cnpj')} /></View>{taxDocumentType === 'cnpj' && <TextInput value={businessName} onChangeText={setBusinessName} placeholder="Razão social ou nome da empresa" placeholderTextColor="#718096" style={styles.inputDark} />}<TouchableOpacity style={[styles.value, issuesInvoice && { borderWidth: 2, borderColor: ACCENT }]} onPress={() => setIssuesInvoice((value) => !value)}><Text style={styles.label}>{issuesInvoice ? '✓' : '○'} Emite nota fiscal</Text></TouchableOpacity></>}
+      {role === 'provider' && <><FormField label="Profissão ou especialidade" value={professionalTitle} onChangeText={setProfessionalTitle} placeholder="Ex.: Eletricista residencial" style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} /><View style={styles.rowWrap}><RoleButton label="Autônomo (CPF)" active={taxDocumentType === 'cpf'} onPress={() => setTaxDocumentType('cpf')} /><RoleButton label="Empresa (CNPJ)" active={taxDocumentType === 'cnpj'} onPress={() => setTaxDocumentType('cnpj')} /></View>{taxDocumentType === 'cnpj' && <FormField label="Razão social ou nome da empresa" value={businessName} onChangeText={setBusinessName} placeholder="Ex.: Empresa Silva LTDA" style={styles.inputDark} labelStyle={AUTH_FIELD_LABEL} />}<TouchableOpacity style={[styles.value, issuesInvoice && { borderWidth: 2, borderColor: ACCENT }]} onPress={() => setIssuesInvoice((value) => !value)}><Text style={styles.label}>{issuesInvoice ? '✓' : '○'} Emite nota fiscal</Text></TouchableOpacity></>}
       {role === 'provider' && <View style={styles.infoBox}><Text style={styles.infoTitle}>Escolha seu plano de prestador</Text>
         <TouchableOpacity style={[styles.value, selectedPlan === 'standard' && { borderWidth: 2, borderColor: ACCENT }]} onPress={() => setSelectedPlan('standard')}><Text style={styles.label}>Comum · R$ 49,90/mês</Text><Text style={styles.muted}>Receba oportunidades e envie propostas.</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.value, selectedPlan === 'premium_verified' && { borderWidth: 2, borderColor: ACCENT }]} onPress={() => setSelectedPlan('premium_verified')}><Text style={styles.label}>Premium Verificado · R$ 69,90/mês</Text><Text style={styles.muted}>Selo verificado, prioridade nos chamados e perfil disponível para busca direta do cliente.</Text></TouchableOpacity>
@@ -228,17 +289,18 @@ export default function App() {
   if (screen === 'negotiation' && activeConversation) return <NegotiationChatScreen user={user} conversation={activeConversation} onBack={() => setScreen(selectedOpportunity ? 'opportunity' : 'home')} onRatingSaved={showServiceCompletion} />;
   if (screen === 'opportunity' && selectedOpportunity) return <OpportunityScreen user={user} demand={selectedOpportunity.demand} distanceKm={selectedOpportunity.distanceKm} onBack={() => { setSelectedOpportunity(null); setScreen('home'); }} onViewDemand={openOpportunityNegotiation} onIgnore={() => { setSelectedOpportunity(null); setScreen('home'); }} />;
   if (screen === 'chat' && activeConversation) return <ChatView conversation={activeConversation} currentUserId={user.id} messages={messages.filter((item) => item.conversationId === activeConversation.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt))} onBack={() => setScreen('home')} onSend={sendMessage} />;
-  if (screen === 'create') return <SafeAreaView style={styles.safeLight}><StatusBar style="dark" /><CreateDemandFlowScreen type={type} category={category} categories={categories} title={title} description={description} budget={budget} locationLabel={locationLabel} latitude={latitude} isUrgent={isUrgent} photoUris={demandPhotoUris} onBack={() => setScreen('home')} onType={(nextType) => { setType(nextType); setCategory(''); }} onCategory={setCategory} onTitle={setTitle} onDescription={setDescription} onBudget={setBudget} onLocation={setLocationLabel} onLocate={captureLocationForDemand} onUrgent={() => setIsUrgent((value) => !value)} onPickPhotos={pickDemandPhotos} onRemovePhoto={removeDemandPhoto} onPublish={createDemand} /></SafeAreaView>;
+  if (screen === 'create') return <SafeAreaView style={styles.safeLight}><StatusBar style="dark" /><CreateDemandFlowScreen type={type} category={category} categories={categories} title={title} description={description} budget={budget} locationLabel={locationLabel} address={serviceAddress} pickupAddress={pickupAddress} dropoffAddress={dropoffAddress} isUrgent={isUrgent} photoUris={demandPhotoUris} onBack={() => setScreen('home')} onType={(nextType) => { setType(nextType); setCategory(''); }} onCategory={setCategory} onTitle={setTitle} onDescription={setDescription} onBudget={setBudget} onLocation={setLocationLabel} onAddress={setServiceAddress} onPickupAddress={setPickupAddress} onDropoffAddress={setDropoffAddress} onLocate={captureLocationForDemand} onUrgent={() => setIsUrgent((value) => !value)} onPickPhotos={pickDemandPhotos} onRemovePhoto={removeDemandPhoto} onPublish={createDemand} /></SafeAreaView>;
   return <SafeAreaView style={styles.safeLight}><StatusBar style="dark" /><View style={styles.header}><View><Text style={styles.brand}>Rubli</Text><Text style={styles.headerSubtitle}>Olá, {user.name}</Text></View><TouchableOpacity onPress={() => setScreen('profile')} style={styles.avatar}><Text style={styles.avatarText}>{user.name[0]?.toUpperCase()}</Text></TouchableOpacity></View>
-    {screen === 'home' && user.role === 'customer' && <CustomerHome user={user} demands={demands} proposals={proposals} onCreate={(selectedType) => { setType(selectedType); setCategory(''); setScreen('create'); }} onAccept={acceptProposal} onCancel={cancelDemand} onChat={openProposalChat} />}
-    {screen === 'home' && user.role === 'provider' && <ProviderFeed feed={providerFeed} providerLatitude={providerLatitude} providerLongitude={providerLongitude} onLocate={captureProviderLocation} onOpenOpportunity={openOpportunity} />}
+    {screen === 'home' && user.role === 'customer' && <CustomerApp user={user} demands={demands} proposals={proposals} onCreate={(selectedType) => { setTargetProviderId(undefined); setType(selectedType); setCategory(''); setScreen('create'); }} onAccept={acceptProposal} onCancel={cancelDemand} onChat={openProposalChat} onViewProvider={openProposalProviderProfile} onOpenProvider={(provider) => openSearchProviderProfile(provider.id)} onRequestProvider={(provider: PremiumProviderSearchItem) => { setTargetProviderId(provider.id); setType(provider.providerType === 'courier' ? 'delivery' : provider.providerType === 'freight' ? 'freight' : 'service'); setCategory(provider.serviceCategories[0] ?? ''); setScreen('create'); }} />}
+    {screen === 'home' && user.role === 'provider' && <ProviderApp feed={providerFeed} latitude={providerLatitude} longitude={providerLongitude} onLocate={captureProviderLocation} onOpenOpportunity={openOpportunity} />}
     {screen === 'profile' && <ProfileScreen user={user} profileName={profileName} onNameChange={setProfileName} onSaveName={updateProfileName} onEditProfessional={() => setProfileEditOpen(true)} onSimulatePlan={simulatePlan} onOpenSupport={() => setSupportOpen(true)} onOpenTerms={() => setLegalDocument('terms')} onOpenPrivacy={() => setLegalDocument('privacy')} onSignOut={signOut} onBack={() => setScreen('home')} />}
 <View style={styles.nav}><TouchableOpacity style={navigationStyles.button} onPress={() => setScreen('home')}><Text style={navigationStyles.icon}>⌂</Text><Text style={styles.navItem}>Início</Text></TouchableOpacity><TouchableOpacity style={navigationStyles.button} onPress={() => user.role === 'customer' ? (setType('service'), setCategory(''), setScreen('create')) : setScreen('home')}><Text style={navigationStyles.icon}>▣</Text><Text style={styles.navItem}>Demandas</Text></TouchableOpacity><TouchableOpacity style={navigationStyles.button} onPress={() => setHistoryOpen(true)}><Text style={navigationStyles.icon}>▤</Text><Text style={styles.navItem}>Histórico</Text></TouchableOpacity><TouchableOpacity style={navigationStyles.button} onPress={() => setNotificationsOpen(true)}><Text style={navigationStyles.icon}>♧</Text><Text style={styles.navItem}>Notificações</Text></TouchableOpacity><TouchableOpacity style={navigationStyles.button} onPress={() => setScreen('profile')}><Text style={navigationStyles.icon}>♙</Text><Text style={styles.navItem}>Perfil</Text></TouchableOpacity></View>
     <HistoryScreen user={user} profiles={[user, ...knownUsers.filter((item) => item.id !== user.id)]} visible={historyOpen} onClose={() => setHistoryOpen(false)} onChanged={() => findPendingRating().catch(() => undefined)} onRatingSaved={showServiceCompletion} />
     <SupportScreen user={user} visible={supportOpen} onClose={() => setSupportOpen(false)} />
     <LegalDocumentModal document={legalDocument} onClose={() => setLegalDocument(null)} />
-    <Modal visible={profileEditOpen} animationType="slide" onRequestClose={() => setProfileEditOpen(false)}><SafeAreaView style={styles.safeLight}><MyProfileScreen user={user} onClose={() => setProfileEditOpen(false)} onSaved={(updatedUser) => { void enterWithUser(updatedUser); setProfileName(updatedUser.name); setProfileEditOpen(false); }} /></SafeAreaView></Modal>
+    <Modal visible={profileEditOpen} animationType="slide" onRequestClose={() => setProfileEditOpen(false)}><SafeAreaView style={styles.safeLight}><MyProfileScreen user={user} availableCategories={remoteCategories} onClose={() => setProfileEditOpen(false)} onSaved={(updatedUser) => { void enterWithUser(updatedUser); setProfileName(updatedUser.name); refreshCategories().catch(() => undefined); setProfileEditOpen(false); }} /></SafeAreaView></Modal>
     <NotificationCenterScreen user={user} visible={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+    {providerProfileOpen && <PublicProfileScreen user={providerProfileOpen} metrics={providerProfileOpen.professionalMetrics} ratings={providerProfileRatings} visible onClose={() => setProviderProfileOpen(null)} />}
     <CompletionRatingModal visible={Boolean(pendingRatingDemand)} demand={pendingRatingDemand} user={user} onClose={() => { if (pendingRatingDemand) setDismissedRatingDemandIds((current) => [...current, pendingRatingDemand.id]); setPendingRatingDemand(null); }} onSaved={async () => { if (pendingRatingDemand) setDismissedRatingDemandIds((current) => [...current, pendingRatingDemand.id]); showServiceCompletion(); }} />
     <Modal visible={Boolean(newDemandPopup)} transparent animationType="fade" onRequestClose={() => setNewDemandPopup(null)}>
       <View style={providerPopupStyles.backdrop}><View style={providerPopupStyles.card}>
@@ -258,8 +320,17 @@ function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () 
   return <ImageBackground source={WELCOME_BACKGROUND} resizeMode="cover" style={welcomeStyles.background}><StatusBar style="light" /><View style={welcomeStyles.shade}><View style={welcomeStyles.bottom}><Text style={welcomeStyles.promise}>Encontre. Negocie.{'\n'}Contrate. Acompanhe.</Text><Text style={welcomeStyles.description}>Serviços locais, mais perto de você.</Text><TouchableOpacity style={welcomeStyles.startButton} onPress={onStart}><Text style={welcomeStyles.startButtonText}>Começar</Text></TouchableOpacity><TouchableOpacity onPress={onLogin} hitSlop={12}><Text style={welcomeStyles.loginLink}>Já tem cadastro? <Text style={welcomeStyles.loginLinkStrong}>Entre</Text></Text></TouchableOpacity></View></View></ImageBackground>;
 }
 
-function RoleEntryScreen({ onBack, onSelect, onLogin }: { onBack: () => void; onSelect: (role: Extract<UserRole, 'customer' | 'provider'>) => void; onLogin: () => void }) {
-  return <SafeAreaView style={roleStyles.safe}><StatusBar style="dark" /><ScrollView contentContainerStyle={roleStyles.content}><TouchableOpacity onPress={onBack} hitSlop={12}><Text style={roleStyles.back}>‹ Voltar</Text></TouchableOpacity><Text style={roleStyles.eyebrow}>BEM-VINDO AO RUBLI</Text><Text style={roleStyles.title}>Como você quer usar o Rubli?</Text><Text style={roleStyles.subtitle}>Escolha seu perfil para personalizarmos sua experiência desde o início.</Text><TouchableOpacity style={roleStyles.card} onPress={() => onSelect('customer')}><View style={[roleStyles.icon, roleStyles.customerIcon]}><Text style={roleStyles.iconText}>⌕</Text></View><View style={roleStyles.cardText}><Text style={roleStyles.cardTitle}>Quero contratar</Text><Text style={roleStyles.cardDescription}>Busco prestadores de serviço para resolver o que preciso.</Text></View><Text style={roleStyles.arrow}>›</Text></TouchableOpacity><TouchableOpacity style={roleStyles.card} onPress={() => onSelect('provider')}><View style={[roleStyles.icon, roleStyles.providerIcon]}><Text style={roleStyles.iconText}>⚒</Text></View><View style={roleStyles.cardText}><Text style={roleStyles.cardTitle}>Quero trabalhar</Text><Text style={roleStyles.cardDescription}>Sou prestador e quero receber oportunidades de serviço.</Text></View><Text style={roleStyles.arrow}>›</Text></TouchableOpacity><View style={roleStyles.loginBox}><Text style={roleStyles.loginText}>Já tem cadastro?</Text><TouchableOpacity onPress={onLogin}><Text style={roleStyles.loginAction}>Entre na sua conta</Text></TouchableOpacity></View></ScrollView></SafeAreaView>;
+function RoleEntryScreen({ onBack, onSelectCustomer, onSelectProvider, onLogin }: { onBack: () => void; onSelectCustomer: () => void; onSelectProvider: () => void; onLogin: () => void }) {
+  return <SafeAreaView style={roleStyles.safe}><StatusBar style="dark" /><ScrollView contentContainerStyle={roleStyles.content}><TouchableOpacity onPress={onBack} hitSlop={12}><Text style={roleStyles.back}>‹ Voltar</Text></TouchableOpacity><Text style={roleStyles.eyebrow}>BEM-VINDO AO RUBLI</Text><Text style={roleStyles.title}>Como você quer usar o Rubli?</Text><Text style={roleStyles.subtitle}>Escolha seu perfil para personalizarmos sua experiência desde o início.</Text><TouchableOpacity style={roleStyles.card} onPress={onSelectCustomer}><View style={[roleStyles.icon, roleStyles.customerIcon]}><Text style={roleStyles.iconText}>⌕</Text></View><View style={roleStyles.cardText}><Text style={roleStyles.cardTitle}>Quero contratar</Text><Text style={roleStyles.cardDescription}>Busco prestadores de serviço para resolver o que preciso.</Text></View><Text style={roleStyles.arrow}>›</Text></TouchableOpacity><TouchableOpacity style={roleStyles.card} onPress={onSelectProvider}><View style={[roleStyles.icon, roleStyles.providerIcon]}><Text style={roleStyles.iconText}>⚒</Text></View><View style={roleStyles.cardText}><Text style={roleStyles.cardTitle}>Quero trabalhar</Text><Text style={roleStyles.cardDescription}>Escolha sua modalidade profissional na próxima etapa.</Text></View><Text style={roleStyles.arrow}>›</Text></TouchableOpacity><View style={roleStyles.loginBox}><Text style={roleStyles.loginText}>Já tem cadastro?</Text><TouchableOpacity onPress={onLogin}><Text style={roleStyles.loginAction}>Entre na sua conta</Text></TouchableOpacity></View></ScrollView></SafeAreaView>;
+}
+
+function ProviderTypeEntryScreen({ onBack, onSelect }: { onBack: () => void; onSelect: (type: ProviderType) => void }) {
+  const options: Array<{ type: ProviderType; icon: string; title: string; description: string }> = [
+    { type: 'services', icon: '🛠', title: 'Prestador de serviços', description: 'Reparos, manutenção, limpeza e serviços especializados.' },
+    { type: 'courier', icon: '🏍', title: 'Entregas / Motoboy', description: 'Entregas rápidas, retiradas e pequenas encomendas.' },
+    { type: 'freight', icon: '🚚', title: 'Fretes e mudanças', description: 'Transporte de móveis, materiais, mudanças e cargas.' },
+  ];
+  return <SafeAreaView style={roleStyles.safe}><StatusBar style="dark" /><ScrollView contentContainerStyle={roleStyles.content}><TouchableOpacity onPress={onBack} hitSlop={12}><Text style={roleStyles.back}>‹ Voltar</Text></TouchableOpacity><Text style={roleStyles.eyebrow}>TRABALHE COM O RUBLI</Text><Text style={roleStyles.title}>Como você quer trabalhar?</Text><Text style={roleStyles.subtitle}>Escolha uma modalidade para criar sua conta profissional.</Text>{options.map((option) => <TouchableOpacity key={option.type} style={roleStyles.card} onPress={() => onSelect(option.type)}><View style={[roleStyles.icon, roleStyles.providerIcon]}><Text style={roleStyles.iconText}>{option.icon}</Text></View><View style={roleStyles.cardText}><Text style={roleStyles.cardTitle}>{option.title}</Text><Text style={roleStyles.cardDescription}>{option.description}</Text></View><Text style={roleStyles.arrow}>›</Text></TouchableOpacity>)}</ScrollView></SafeAreaView>;
 }
 
 function ServiceCompletionScreen() {
